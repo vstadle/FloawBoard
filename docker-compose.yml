@@ -1,0 +1,58 @@
+services:
+  # --- BASE DE DONNÉES ---
+  db:
+    image: postgres:16-alpine
+    container_name: kanban-db
+    restart: always
+    environment:
+      POSTGRES_USER: user_kanban
+      POSTGRES_PASSWORD: password_safe
+      POSTGRES_DB: kanban_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/init.db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - kanban-network
+    ports:
+      - "5432:5432"
+
+  # --- API RUST ---
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kanban-api
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgres://user_kanban:password_safe@db:5432/kanban_db
+      APP_PORT: 8080
+    networks:
+      - kanban-network
+    ports:
+      - "8080:8080"
+
+  # --- FRONTEND NEXT.JS ---
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: kanban-ui
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    networks:
+      - kanban-network
+    ports:
+      - "3000:3000"
+
+# --- CONFIGURATION RÉSEAUX ET VOLUMES ---
+networks:
+  kanban-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

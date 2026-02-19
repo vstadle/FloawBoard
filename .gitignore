@@ -1,0 +1,49 @@
+# OS & System
+.DS_Store
+Thumbs.db
+*.swp
+
+# IDE & Editors
+.vscode/
+.idea/
+*.iml
+
+# Node.js / Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# Rust / Backend
+backend/target/
+backend/Cargo.lock
+**/*.rs.bk
+
+# Database
+backend/init.db/postgres_data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker
+.env
+docker-compose.override.yml
+
+# Terraform
+.terraform/
+
+# Logs
+logs/
+*.log
+
+# Temporary Files
+tmp/
+temp/
