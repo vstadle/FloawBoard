@@ -1,6 +1,6 @@
 use axum::{
     extract::State,
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
@@ -12,7 +12,7 @@ use argon2::{
     },
     Argon2
 };
-use jsonwebtoken::{encode, EncodingKey, Header};
+use jsonwebtoken::{encode, decode, DecodingKey, Validation, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use chrono::{Utc, Duration};
@@ -117,4 +117,40 @@ pub async fn login_user(
     };
 
     (StatusCode::OK, Json(AuthResponse { token, user })).into_response()
+}
+
+pub async fn get_me(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let auth_header = match headers.get("Authorization").and_then(|h| h.to_str().ok()) {
+        Some(h) if h.starts_with("Bearer ") => &h[7..],
+        _ => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
+    };
+
+    let token_data = match decode::<Claims>(
+        auth_header,
+        &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
+        &Validation::default(),
+    ) {
+        Ok(data) => data,
+        Err(_) => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
+    };
+
+    let user_id = match Uuid::parse_str(&token_data.claims.sub) {
+        Ok(id) => id,
+        Err(_) => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
+    };
+
+    let user = match sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+    {
+        Ok(Some(u)) => u,
+        Ok(None) => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+    };
+
+    (StatusCode::OK, Json(user)).into_response()
 }

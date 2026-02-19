@@ -4,12 +4,14 @@ FloawBoard is a modern, self-hostable Kanban project management tool designed fo
 
 ## Features
 
--   **User Authentication**: Secure registration and login system using Argon2 hashing and JWT (JSON Web Tokens).
--   **Dashboard**: Centralized view to manage multiple project boards.
+-   **User Authentication**: Secure registration (with password confirmation) and login system using Argon2 hashing and JWT (JSON Web Tokens).
+-   **User Profiles**: Dedicated profile page to view account details (username, email, join date).
+-   **Dashboard**: Centralized view to manage multiple project boards, displaying owner email and member avatars.
 -   **Board Management**: Create, rename, and delete boards.
+-   **Board Sharing**: Invite other registered users to your boards via email.
 -   **List Management**: Create, rename, delete, and reorder lists within a board.
--   **Task Management**: Create, edit, delete, and prioritize tasks (Low, Medium, High).
--   **Drag & Drop**: Intuitive drag-and-drop interface for moving tasks between lists.
+-   **Task Management**: Create, edit, delete, and prioritize tasks (Low, Medium, High) with color-coded indicators.
+-   **Drag & Drop**: Native HTML5 drag-and-drop interface for moving tasks between lists.
 -   **Responsive Design**: Modern UI built with Tailwind CSS, fully responsive for various screen sizes.
 
 ## Technology Stack
@@ -112,13 +114,16 @@ If you prefer to run services individually for development:
     -   Body: `{ "username": "...", "email": "...", "password": "..." }`
 -   `POST /login`: Authenticate user and receive JWT.
     -   Body: `{ "email": "...", "password": "..." }`
+-   `GET /me`: Get current user profile.
 
 ### Boards
--   `GET /boards`: List all boards.
+-   `GET /boards`: List all boards (owned or shared).
 -   `POST /boards`: Create a new board.
 -   `GET /boards/:id`: Get board details.
 -   `PUT /boards/:id`: Update board details.
 -   `DELETE /boards/:id`: Delete a board.
+-   `POST /boards/:id/members`: Invite a user to the board.
+    -   Body: `{ "email": "..." }`
 
 ### Lists
 -   `GET /boards/:board_id/lists`: Get all lists for a board.

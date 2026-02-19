@@ -9,7 +9,8 @@ interface Board {
   id: string;
   title: string;
   created_at?: string;
-  members: string[]; // List of usernames
+  members: string[]; 
+  owner_email: string;
 }
 
 export default function DashboardPage() {
@@ -131,12 +132,19 @@ export default function DashboardPage() {
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white text-lg font-bold shadow-indigo-200 shadow-lg">F</div>
             <span className="font-bold text-xl tracking-tight">FloawBoard</span>
           </div>
-          <button
-            onClick={handleLogout}
-            className="text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors"
-          >
-            Log out
-          </button>
+          <div className="flex items-center gap-4">
+              <Link href="/profile" className="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-100 transition-colors" title="My Profile">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+              </Link>
+              <button
+                onClick={handleLogout}
+                className="text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors"
+              >
+                Log out
+              </button>
+          </div>
         </div>
       </header>
 
@@ -182,9 +190,14 @@ export default function DashboardPage() {
               <div className="h-2 bg-indigo-500 w-full group-hover:h-3 transition-all"></div>
               <div className="p-6">
                 <div className="flex justify-between items-start">
-                    <h2 className="text-lg font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors mb-2 truncate pr-6 w-full">
-                    {board.title}
-                    </h2>
+                    <div className="pr-6 w-full">
+                        <h2 className="text-lg font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors mb-1 truncate">
+                        {board.title}
+                        </h2>
+                        <p className="text-xs text-gray-500 truncate" title={board.owner_email}>
+                            Owned by {board.owner_email}
+                        </p>
+                    </div>
                     
                     <button 
                         onClick={(e) => handleOpenMenu(e, board.id)}
@@ -206,14 +219,14 @@ export default function DashboardPage() {
                         {board.members && board.members.slice(0, 3).map((member, index) => (
                             <div 
                                 key={index}
-                                className="inline-block h-6 w-6 rounded-full ring-2 ring-white bg-indigo-100 flex items-center justify-center text-[10px] font-bold text-indigo-600"
+                                className="inline-flex items-center justify-center h-6 w-6 rounded-full ring-2 ring-white bg-indigo-100 text-[10px] font-bold text-indigo-600 leading-none"
                                 title={member}
                             >
                                 {getInitials(member)}
                             </div>
                         ))}
                         {board.members && board.members.length > 3 && (
-                            <div className="inline-block h-6 w-6 rounded-full ring-2 ring-white bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-600">
+                            <div className="inline-flex items-center justify-center h-6 w-6 rounded-full ring-2 ring-white bg-gray-100 text-[10px] font-bold text-gray-600 leading-none">
                                 +{board.members.length - 3}
                             </div>
                         )}

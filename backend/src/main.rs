@@ -7,7 +7,7 @@ use sqlx::postgres::PgPoolOptions;
 use dotenvy::dotenv;
 use std::env;
 use tower_http::cors::{CorsLayer, Any};
-use crate::handlers::user::{register_user, login_user, AppState};
+use crate::handlers::user::{register_user, login_user, get_me, AppState};
 use crate::handlers::board::{
     get_boards, create_board, get_board_details, update_board, delete_board, add_member,
     get_lists, create_list, update_list, delete_list,
@@ -46,6 +46,7 @@ async fn main() {
         // Auth Routes
         .route("/register", post(register_user))
         .route("/login", post(login_user))
+        .route("/me", get(get_me))
         // Board Routes
         .route("/boards", get(get_boards).post(create_board))
         .route("/boards/:board_id", get(get_board_details).put(update_board).delete(delete_board))

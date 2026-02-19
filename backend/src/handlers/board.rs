@@ -9,6 +9,7 @@ use jsonwebtoken::{decode, DecodingKey, Validation};
 use crate::models::board::{Board, CreateBoard, UpdateBoard, List, CreateList, UpdateList, Card, CreateCard, UpdateCard, AddMember};
 use crate::handlers::user::{AppState, Claims};
 use crate::models::user::User;
+use chrono::{DateTime, Utc};
 
 // Helper to extract user_id from Authorization header
 fn get_user_id_from_header(headers: &HeaderMap, secret: &str) -> Option<Uuid> {
@@ -43,8 +44,10 @@ pub async fn get_boards(
         r#"
         SELECT 
             b.id, b.user_id, b.title, b.created_at, b.updated_at,
-            COALESCE(array_agg(u.username) FILTER (WHERE u.username IS NOT NULL), '{}') as members
+            owner.email as owner_email,
+            COALESCE(array_agg(u.username) FILTER (WHERE u.username IS NOT NULL), '{}')::text[] as members
         FROM boards b
+        JOIN users owner ON b.user_id = owner.id
         LEFT JOIN board_members bm ON b.id = bm.board_id
         LEFT JOIN users u ON bm.user_id = u.id
         WHERE b.id IN (
@@ -52,7 +55,7 @@ pub async fn get_boards(
             LEFT JOIN board_members bm2 ON b2.id = bm2.board_id
             WHERE b2.user_id = $1 OR bm2.user_id = $1
         )
-        GROUP BY b.id
+        GROUP BY b.id, owner.email
         "#
     )
     .bind(user_id)
@@ -83,13 +86,8 @@ pub async fn create_board(
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
     };
 
-    // Create Board
-    // We can't return members here directly in the same query easily without more complex SQL, 
-    // so we'll construct the response manually or fetch it again. 
-    // For simplicity, we'll return the basic board and frontend handles the initial "no members" state.
-    // However, since the struct expects members, we need to handle it.
-    
-    let board_insert_result = sqlx::query_as::<_, Board>(
+    // Create Board using sqlx::query and manual mapping
+    let board_row = sqlx::query(
         r#"
         INSERT INTO boards (id, user_id, title)
         VALUES ($1, $2, $3)
@@ -99,11 +97,21 @@ pub async fn create_board(
     .bind(board_id)
     .bind(user_id)
     .bind(payload.title)
+    .map(|row: sqlx::postgres::PgRow| {
+        use sqlx::Row;
+        (
+            row.get::<Uuid, _>("id"),
+            row.get::<Uuid, _>("user_id"),
+            row.get::<String, _>("title"),
+            row.get::<Option<DateTime<Utc>>, _>("created_at"),
+            row.get::<Option<DateTime<Utc>>, _>("updated_at"),
+        )
+    })
     .fetch_one(&mut *tx)
     .await;
 
-    let board_record = match board_insert_result {
-        Ok(b) => b,
+    let (id, uid, title, created_at, updated_at) = match board_row {
+        Ok(res) => res,
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create board").into_response(),
     };
 
@@ -127,13 +135,16 @@ pub async fn create_board(
         return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to commit transaction").into_response();
     }
 
-    // Get the creator's username to populate members
+    // Get the creator's username and email
     let user_result = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
         .bind(user_id)
         .fetch_one(&state.db)
         .await;
         
-    let username = user_result.map(|u| u.username).unwrap_or_else(|_| "Owner".to_string());
+    let (username, email) = match user_result {
+        Ok(u) => (u.username, u.email),
+        Err(_) => ("Owner".to_string(), "owner@example.com".to_string()),
+    };
 
     let board = Board {
         id,
@@ -142,6 +153,7 @@ pub async fn create_board(
         created_at,
         updated_at,
         members: vec![username],
+        owner_email: email,
     };
 
     (StatusCode::CREATED, Json(board)).into_response()
@@ -156,12 +168,14 @@ pub async fn get_board_details(
         r#"
         SELECT 
             b.id, b.user_id, b.title, b.created_at, b.updated_at,
-            COALESCE(array_agg(u.username) FILTER (WHERE u.username IS NOT NULL), '{}') as members
+            owner.email as owner_email,
+            COALESCE(array_agg(u.username) FILTER (WHERE u.username IS NOT NULL), '{}')::text[] as members
         FROM boards b
+        JOIN users owner ON b.user_id = owner.id
         LEFT JOIN board_members bm ON b.id = bm.board_id
         LEFT JOIN users u ON bm.user_id = u.id
         WHERE b.id = $1
-        GROUP BY b.id
+        GROUP BY b.id, owner.email
         "#
     )
         .bind(board_id)
@@ -180,12 +194,6 @@ pub async fn update_board(
     Path(board_id): Path<Uuid>,
     Json(payload): Json<UpdateBoard>,
 ) -> impl IntoResponse {
-    // Note: This query needs to return members to match the struct or we handle it partially.
-    // For update, we might not change members, so we re-fetch or just return what we have.
-    // A simpler approach is to return the updated fields and let frontend keep state, 
-    // but our struct requires all fields.
-    // Let's do a transactional update-then-fetch or a CTE.
-    
     let result = sqlx::query_as::<_, Board>(
         r#"
         WITH updated AS (
@@ -196,11 +204,13 @@ pub async fn update_board(
         )
         SELECT 
             u.id, u.user_id, u.title, u.created_at, u.updated_at,
-            COALESCE(array_agg(usr.username) FILTER (WHERE usr.username IS NOT NULL), '{}') as members
+            owner.email as owner_email,
+            COALESCE(array_agg(usr.username) FILTER (WHERE usr.username IS NOT NULL), '{}')::text[] as members
         FROM updated u
+        JOIN users owner ON u.user_id = owner.id
         LEFT JOIN board_members bm ON u.id = bm.board_id
         LEFT JOIN users usr ON bm.user_id = usr.id
-        GROUP BY u.id, u.user_id, u.title, u.created_at, u.updated_at
+        GROUP BY u.id, u.user_id, u.title, u.created_at, u.updated_at, owner.email
         "#
     )
     .bind(payload.title)

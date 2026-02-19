@@ -12,6 +12,8 @@ pub struct Board {
     pub updated_at: Option<DateTime<Utc>>,
     #[sqlx(default)]
     pub members: Vec<String>, // List of usernames
+    #[sqlx(default)]
+    pub owner_email: String,
 }
 
 #[derive(Debug, Deserialize)]

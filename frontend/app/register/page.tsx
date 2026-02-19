@@ -9,12 +9,18 @@ export default function RegisterPage() {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (password !== confirmPassword) {
+        setError("Passwords do not match");
+        return;
+    }
 
     try {
       await fetchAPI('/register', {
@@ -98,10 +104,24 @@ export default function RegisterPage() {
                 type="password"
                 autoComplete="new-password"
                 required
-                className="relative block w-full appearance-none rounded-none rounded-b-md border border-gray-300 px-3 py-3 text-gray-900 placeholder-gray-500 focus:z-10 focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
+                className="relative block w-full appearance-none border border-gray-300 px-3 py-3 text-gray-900 placeholder-gray-500 focus:z-10 focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
                 placeholder="Password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            <div>
+              <label htmlFor="confirm-password" className="sr-only">Confirm Password</label>
+              <input
+                id="confirm-password"
+                name="confirm-password"
+                type="password"
+                autoComplete="new-password"
+                required
+                className="relative block w-full appearance-none rounded-none rounded-b-md border border-gray-300 px-3 py-3 text-gray-900 placeholder-gray-500 focus:z-10 focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
+                placeholder="Confirm Password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
               />
             </div>
           </div>
