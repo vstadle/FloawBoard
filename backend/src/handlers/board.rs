@@ -1,23 +1,63 @@
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
 use uuid::Uuid;
-use crate::models::board::{Board, CreateBoard, UpdateBoard, List, CreateList, UpdateList, Card, CreateCard, UpdateCard};
-use crate::handlers::user::AppState;
+use jsonwebtoken::{decode, DecodingKey, Validation};
+use crate::models::board::{Board, CreateBoard, UpdateBoard, List, CreateList, UpdateList, Card, CreateCard, UpdateCard, AddMember};
+use crate::handlers::user::{AppState, Claims};
+use crate::models::user::User;
+
+// Helper to extract user_id from Authorization header
+fn get_user_id_from_header(headers: &HeaderMap, secret: &str) -> Option<Uuid> {
+    let auth_header = headers.get("Authorization")?.to_str().ok()?;
+    if !auth_header.starts_with("Bearer ") {
+        return None;
+    }
+    let token = &auth_header[7..];
+    
+    let token_data = decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::default(),
+    ).ok()?;
+
+    Uuid::parse_str(&token_data.claims.sub).ok()
+}
 
 // --- BOARDS ---
 
 pub async fn get_boards(
     State(state): State<AppState>,
-    // TODO: Extract user_id from JWT middleware
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    // Temporary: Fetch all boards (for testing), later filter by user_id
-    let result = sqlx::query_as::<_, Board>("SELECT * FROM boards")
-        .fetch_all(&state.db)
-        .await;
+    let user_id = match get_user_id_from_header(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
+    };
+
+    // Fetch boards where user is owner OR a member, including aggregated members
+    let result = sqlx::query_as::<_, Board>(
+        r#"
+        SELECT 
+            b.id, b.user_id, b.title, b.created_at, b.updated_at,
+            COALESCE(array_agg(u.username) FILTER (WHERE u.username IS NOT NULL), '{}') as members
+        FROM boards b
+        LEFT JOIN board_members bm ON b.id = bm.board_id
+        LEFT JOIN users u ON bm.user_id = u.id
+        WHERE b.id IN (
+            SELECT b2.id FROM boards b2
+            LEFT JOIN board_members bm2 ON b2.id = bm2.board_id
+            WHERE b2.user_id = $1 OR bm2.user_id = $1
+        )
+        GROUP BY b.id
+        "#
+    )
+    .bind(user_id)
+    .fetch_all(&state.db)
+    .await;
 
     match result {
         Ok(boards) => (StatusCode::OK, Json(boards)).into_response(),
@@ -27,19 +67,29 @@ pub async fn get_boards(
 
 pub async fn create_board(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<CreateBoard>,
 ) -> impl IntoResponse {
-    // TODO: Get user_id from JWT
-    let user_id_result = sqlx::query_as::<_, (Uuid,)>("SELECT id FROM users LIMIT 1").fetch_one(&state.db).await;
-    
-    let user_id = match user_id_result {
-        Ok(rec) => rec.0,
-        Err(_) => return (StatusCode::BAD_REQUEST, "No users found to attach board to").into_response(),
+    let user_id = match get_user_id_from_header(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
     };
 
     let board_id = Uuid::new_v4();
     
-    let result = sqlx::query_as::<_, Board>(
+    // Start transaction
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+    };
+
+    // Create Board
+    // We can't return members here directly in the same query easily without more complex SQL, 
+    // so we'll construct the response manually or fetch it again. 
+    // For simplicity, we'll return the basic board and frontend handles the initial "no members" state.
+    // However, since the struct expects members, we need to handle it.
+    
+    let board_insert_result = sqlx::query_as::<_, Board>(
         r#"
         INSERT INTO boards (id, user_id, title)
         VALUES ($1, $2, $3)
@@ -49,20 +99,71 @@ pub async fn create_board(
     .bind(board_id)
     .bind(user_id)
     .bind(payload.title)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await;
 
-    match result {
-        Ok(board) => (StatusCode::CREATED, Json(board)).into_response(),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+    let board_record = match board_insert_result {
+        Ok(b) => b,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create board").into_response(),
+    };
+
+    // Add Creator as Owner in board_members
+    let member_result = sqlx::query(
+        r#"
+        INSERT INTO board_members (board_id, user_id, role)
+        VALUES ($1, $2, 'owner')
+        "#
+    )
+    .bind(board_id)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await;
+
+    if member_result.is_err() {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to add member").into_response();
     }
+
+    if tx.commit().await.is_err() {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to commit transaction").into_response();
+    }
+
+    // Get the creator's username to populate members
+    let user_result = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&state.db)
+        .await;
+        
+    let username = user_result.map(|u| u.username).unwrap_or_else(|_| "Owner".to_string());
+
+    let board = Board {
+        id,
+        user_id: uid,
+        title,
+        created_at,
+        updated_at,
+        members: vec![username],
+    };
+
+    (StatusCode::CREATED, Json(board)).into_response()
 }
 
 pub async fn get_board_details(
     State(state): State<AppState>,
     Path(board_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    let board = sqlx::query_as::<_, Board>("SELECT * FROM boards WHERE id = $1")
+    // Also fetch members for details view
+    let board = sqlx::query_as::<_, Board>(
+        r#"
+        SELECT 
+            b.id, b.user_id, b.title, b.created_at, b.updated_at,
+            COALESCE(array_agg(u.username) FILTER (WHERE u.username IS NOT NULL), '{}') as members
+        FROM boards b
+        LEFT JOIN board_members bm ON b.id = bm.board_id
+        LEFT JOIN users u ON bm.user_id = u.id
+        WHERE b.id = $1
+        GROUP BY b.id
+        "#
+    )
         .bind(board_id)
         .fetch_optional(&state.db)
         .await;
@@ -79,12 +180,27 @@ pub async fn update_board(
     Path(board_id): Path<Uuid>,
     Json(payload): Json<UpdateBoard>,
 ) -> impl IntoResponse {
+    // Note: This query needs to return members to match the struct or we handle it partially.
+    // For update, we might not change members, so we re-fetch or just return what we have.
+    // A simpler approach is to return the updated fields and let frontend keep state, 
+    // but our struct requires all fields.
+    // Let's do a transactional update-then-fetch or a CTE.
+    
     let result = sqlx::query_as::<_, Board>(
         r#"
-        UPDATE boards
-        SET title = $1, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2
-        RETURNING id, user_id, title, created_at, updated_at
+        WITH updated AS (
+            UPDATE boards
+            SET title = $1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2
+            RETURNING id, user_id, title, created_at, updated_at
+        )
+        SELECT 
+            u.id, u.user_id, u.title, u.created_at, u.updated_at,
+            COALESCE(array_agg(usr.username) FILTER (WHERE usr.username IS NOT NULL), '{}') as members
+        FROM updated u
+        LEFT JOIN board_members bm ON u.id = bm.board_id
+        LEFT JOIN users usr ON bm.user_id = usr.id
+        GROUP BY u.id, u.user_id, u.title, u.created_at, u.updated_at
         "#
     )
     .bind(payload.title)
@@ -116,6 +232,42 @@ pub async fn delete_board(
                 (StatusCode::NOT_FOUND, "Board not found").into_response()
             }
         }
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+    }
+}
+
+pub async fn add_member(
+    State(state): State<AppState>,
+    Path(board_id): Path<Uuid>,
+    Json(payload): Json<AddMember>,
+) -> impl IntoResponse {
+    // 1. Find user by email
+    let user_opt = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
+        .bind(&payload.email)
+        .fetch_optional(&state.db)
+        .await;
+
+    let user = match user_opt {
+        Ok(Some(u)) => u,
+        Ok(None) => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+    };
+
+    // 2. Add to board_members
+    let result = sqlx::query(
+        r#"
+        INSERT INTO board_members (board_id, user_id, role)
+        VALUES ($1, $2, 'editor')
+        ON CONFLICT (board_id, user_id) DO NOTHING
+        "#
+    )
+    .bind(board_id)
+    .bind(user.id)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({ "message": "Member added" }))).into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
     }
 }

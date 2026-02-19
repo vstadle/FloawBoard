@@ -10,6 +10,8 @@ pub struct Board {
     pub title: String,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
+    #[sqlx(default)]
+    pub members: Vec<String>, // List of usernames
 }
 
 #[derive(Debug, Deserialize)]
@@ -20,6 +22,11 @@ pub struct CreateBoard {
 #[derive(Debug, Deserialize)]
 pub struct UpdateBoard {
     pub title: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddMember {
+    pub email: String,
 }
 
 #[derive(Debug, Serialize, FromRow)]

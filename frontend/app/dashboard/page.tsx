@@ -9,6 +9,7 @@ interface Board {
   id: string;
   title: string;
   created_at?: string;
+  members: string[]; // List of usernames
 }
 
 export default function DashboardPage() {
@@ -116,6 +117,11 @@ export default function DashboardPage() {
       }
   };
 
+  // Helper to get initials
+  const getInitials = (name: string) => {
+      return name.slice(0, 2).toUpperCase();
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
       {/* Top Navigation */}
@@ -176,13 +182,13 @@ export default function DashboardPage() {
               <div className="h-2 bg-indigo-500 w-full group-hover:h-3 transition-all"></div>
               <div className="p-6">
                 <div className="flex justify-between items-start">
-                    <h2 className="text-lg font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors mb-2 truncate pr-6">
+                    <h2 className="text-lg font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors mb-2 truncate pr-6 w-full">
                     {board.title}
                     </h2>
                     
                     <button 
                         onClick={(e) => handleOpenMenu(e, board.id)}
-                        className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100 transition-colors absolute top-4 right-4"
+                        className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100 transition-colors absolute top-4 right-4 z-10"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" />
@@ -190,10 +196,28 @@ export default function DashboardPage() {
                     </button>
                 </div>
                 
-                <div className="flex items-center text-xs text-gray-400 mt-4">
-                    <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded-md">Project</span>
-                    <span className="mx-2">•</span>
-                    <span>Last updated recently</span>
+                <div className="flex items-center justify-between mt-4">
+                    <div className="flex items-center text-xs text-gray-400">
+                        <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded-md">Project</span>
+                    </div>
+                    
+                    {/* Member Avatars */}
+                    <div className="flex -space-x-2 overflow-hidden">
+                        {board.members && board.members.slice(0, 3).map((member, index) => (
+                            <div 
+                                key={index}
+                                className="inline-block h-6 w-6 rounded-full ring-2 ring-white bg-indigo-100 flex items-center justify-center text-[10px] font-bold text-indigo-600"
+                                title={member}
+                            >
+                                {getInitials(member)}
+                            </div>
+                        ))}
+                        {board.members && board.members.length > 3 && (
+                            <div className="inline-block h-6 w-6 rounded-full ring-2 ring-white bg-gray-100 flex items-center justify-center text-[10px] font-bold text-gray-600">
+                                +{board.members.length - 3}
+                            </div>
+                        )}
+                    </div>
                 </div>
               </div>
             </Link>

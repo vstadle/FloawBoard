@@ -27,10 +27,10 @@ pub struct AppState {
 
 // Structure des claims JWT
 #[derive(Debug, Serialize, Deserialize)]
-struct Claims {
-    sub: String, // Subject (user_id)
-    exp: usize,  // Expiration time
-    iat: usize,  // Issued at
+pub struct Claims {
+    pub sub: String, // Subject (user_id)
+    pub exp: usize,  // Expiration time
+    pub iat: usize,  // Issued at
 }
 
 pub async fn register_user(

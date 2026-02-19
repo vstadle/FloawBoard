@@ -60,6 +60,11 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
   // Drag and Drop state
   const [draggedCard, setDraggedCard] = useState<{ cardId: string, sourceListId: string } | null>(null);
 
+  // Share Modal State
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [shareEmail, setShareEmail] = useState('');
+  const [shareMessage, setShareMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+
   const menuListRef = useRef<HTMLDivElement>(null);
   const menuCardRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -127,12 +132,27 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
       setOpenMenuListId(null);
   };
 
+  const handleShareBoard = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setShareMessage(null);
+      
+      try {
+          await fetchAPI(`/boards/${boardId}/members`, {
+              method: 'POST',
+              body: JSON.stringify({ email: shareEmail })
+          });
+          setShareMessage({ type: 'success', text: 'User invited successfully!' });
+          setShareEmail('');
+      } catch (err: any) {
+          setShareMessage({ type: 'error', text: err.message || 'Failed to invite user.' });
+      }
+  };
+
   // --- DRAG AND DROP ---
 
   const handleDragStart = (e: React.DragEvent, cardId: string, listId: string) => {
       setDraggedCard({ cardId, sourceListId: listId });
       e.dataTransfer.effectAllowed = "move";
-      // Optional: Set a custom drag image or styling here
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -147,10 +167,9 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
       const { cardId, sourceListId } = draggedCard;
       if (sourceListId === targetListId) {
           setDraggedCard(null);
-          return; // No change if dropped in same list (for now, unless implementing reordering)
+          return;
       }
 
-      // Optimistic UI Update
       const sourceListIndex = lists.findIndex(l => l.id === sourceListId);
       const targetListIndex = lists.findIndex(l => l.id === targetListId);
       
@@ -165,9 +184,6 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
 
       const [cardToMove] = sourceList.cards.splice(cardIndex, 1);
       
-      // Calculate new position (append to end)
-      // If we implemented dropping ON a card, we'd calculate index here. 
-      // For dropping on list, we append.
       const newPosition = targetList.cards.length; 
       const movedCard = { ...cardToMove, position: newPosition };
       
@@ -179,7 +195,6 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
       setLists(newLists);
       setDraggedCard(null);
 
-      // API Call
       try {
           await fetchAPI(`/cards/${cardId}`, {
               method: 'PUT',
@@ -190,7 +205,6 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
           });
       } catch (err) {
           console.error("Failed to update card position", err);
-          // TODO: Revert UI state on failure
       }
   };
 
@@ -281,7 +295,7 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
       }));
       
       setNewCardTitles({ ...newCardTitles, [listId]: '' });
-      setNewCardPriority({ ...newCardPriority, [listId]: 'low' }); // Reset priority
+      setNewCardPriority({ ...newCardPriority, [listId]: 'low' });
     } catch (err) {
       console.error(err);
     }
@@ -355,7 +369,13 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
             </span>
         </div>
         <div className="flex items-center gap-3">
-            <button className="text-gray-500 hover:text-gray-700 text-sm font-medium transition-colors">
+            <button 
+                onClick={() => setIsShareModalOpen(true)}
+                className="text-indigo-600 hover:text-indigo-800 text-sm font-medium transition-colors flex items-center gap-1 bg-indigo-50 px-3 py-1.5 rounded-lg hover:bg-indigo-100"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                </svg>
                 Share
             </button>
             <div className="h-6 w-px bg-gray-300"></div>
@@ -419,7 +439,7 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
                 {list.cards.map((card) => (
                   <div 
                     key={card.id} 
-                    draggable={editingCardId !== card.id} // Disable drag when editing
+                    draggable={editingCardId !== card.id}
                     onDragStart={(e) => handleDragStart(e, card.id, list.id)}
                     className={`group bg-white p-3 rounded-xl shadow-sm border border-gray-200 hover:border-indigo-300 hover:ring-2 hover:ring-indigo-50/50 cursor-pointer transition-all duration-200 relative ${draggedCard?.cardId === card.id ? 'opacity-50' : ''}`}
                   >
@@ -585,6 +605,45 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
         </div>
       </div>
       
+      {/* Share Modal */}
+      {isShareModalOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100">
+                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                    <h3 className="text-lg font-bold text-gray-900">Share Board</h3>
+                    <button onClick={() => setIsShareModalOpen(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <form onSubmit={handleShareBoard} className="p-6">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Invite User</label>
+                    <div className="flex gap-2">
+                        <input
+                            type="email"
+                            placeholder="Enter email address"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                            value={shareEmail}
+                            onChange={(e) => setShareEmail(e.target.value)}
+                        />
+                        <button
+                            type="submit"
+                            className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors whitespace-nowrap"
+                        >
+                            Invite
+                        </button>
+                    </div>
+                    {shareMessage && (
+                        <p className={`mt-3 text-sm ${shareMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                            {shareMessage.text}
+                        </p>
+                    )}
+                </form>
+            </div>
+        </div>
+      )}
+
       {/* Fixed Menu Portals */}
       {openMenuListId && (
         <div 
