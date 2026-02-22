@@ -11,6 +11,11 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # On désactive la télémétrie Next.js pendant le build
 ENV NEXT_TELEMETRY_DISABLED 1
+
+# Accept the API URL as a build argument
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 RUN npm run build
 
 # --- ÉTAPE 3 : Exécution ---

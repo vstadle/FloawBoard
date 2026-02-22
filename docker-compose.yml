@@ -14,7 +14,7 @@ services:
     networks:
       - kanban-network
     ports:
-      - "5432:5432"
+      - "50003:5432"
 
   # --- API RUST ---
   api:
@@ -31,23 +31,25 @@ services:
     networks:
       - kanban-network
     ports:
-      - "8080:8080"
+      - "50002:8080"
 
   # --- FRONTEND NEXT.JS ---
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://192.168.1.50:50002
     container_name: kanban-ui
     restart: unless-stopped
     depends_on:
       - api
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8080
+      NEXT_PUBLIC_API_URL: http://192.168.1.50:50002
     networks:
       - kanban-network
     ports:
-      - "3000:3000"
+      - "50001:3000"
 
 # --- CONFIGURATION RÉSEAUX ET VOLUMES ---
 networks:
