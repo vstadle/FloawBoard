@@ -11,6 +11,7 @@ interface Card {
   description?: string;
   priority: 'low' | 'medium' | 'high';
   position: number;
+  created_at?: string;
 }
 
 interface List {
@@ -59,6 +60,32 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
 
   // Drag and Drop state
   const [draggedCard, setDraggedCard] = useState<{ cardId: string, sourceListId: string } | null>(null);
+
+  // Per-List Settings State (Sort & Filter)
+  type SortOption = 'manual' | 'date-newest' | 'date-oldest' | 'priority-high' | 'priority-low';
+  interface ListSettings {
+      sortBy: SortOption;
+      filterPriority: 'all' | 'low' | 'medium' | 'high';
+      filterText: string;
+      isSettingsOpen: boolean; // To toggle the settings popover
+  }
+  const [listSettings, setListSettings] = useState<{ [key: string]: ListSettings }>({});
+
+  const getListSettings = (listId: string): ListSettings => {
+      return listSettings[listId] || { 
+          sortBy: 'manual', 
+          filterPriority: 'all', 
+          filterText: '',
+          isSettingsOpen: false
+      };
+  };
+
+  const updateListSettings = (listId: string, updates: Partial<ListSettings>) => {
+      setListSettings(prev => ({
+          ...prev,
+          [listId]: { ...getListSettings(listId), ...updates }
+      }));
+  };
 
   // Share Modal State
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
@@ -160,12 +187,14 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
       e.dataTransfer.dropEffect = "move";
   };
 
-  const handleDrop = async (e: React.DragEvent, targetListId: string) => {
+  const handleDrop = async (e: React.DragEvent, targetListId: string, targetCardId?: string) => {
       e.preventDefault();
+      e.stopPropagation();
       if (!draggedCard) return;
 
       const { cardId, sourceListId } = draggedCard;
-      if (sourceListId === targetListId) {
+      // If dropping on the same card, do nothing
+      if (cardId === targetCardId) {
           setDraggedCard(null);
           return;
       }
@@ -176,35 +205,59 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
       if (sourceListIndex === -1 || targetListIndex === -1) return;
 
       const newLists = [...lists];
-      const sourceList = { ...newLists[sourceListIndex] };
-      const targetList = { ...newLists[targetListIndex] };
+      const sourceList = { ...newLists[sourceListIndex], cards: [...newLists[sourceListIndex].cards] };
+      const targetList = sourceListId === targetListId 
+          ? sourceList 
+          : { ...newLists[targetListIndex], cards: [...newLists[targetListIndex].cards] };
 
+      // 1. Remove from source
       const cardIndex = sourceList.cards.findIndex(c => c.id === cardId);
       if (cardIndex === -1) return;
-
       const [cardToMove] = sourceList.cards.splice(cardIndex, 1);
-      
-      const newPosition = targetList.cards.length; 
-      const movedCard = { ...cardToMove, position: newPosition };
-      
-      targetList.cards.push(movedCard);
 
+      // 2. Insert into target
+      let newPositionIndex;
+      if (targetCardId) {
+          const targetCardIndex = targetList.cards.findIndex(c => c.id === targetCardId);
+          // If we removed the card from before the target index in the same list, the index shifted down.
+          // But since we already removed it, the targetCardIndex in the *modified* array is correct for insertion "before".
+          newPositionIndex = targetCardIndex !== -1 ? targetCardIndex : targetList.cards.length;
+      } else {
+          newPositionIndex = targetList.cards.length;
+      }
+      
+      targetList.cards.splice(newPositionIndex, 0, cardToMove);
+
+      // 3. Update positions in the target list objects
+      targetList.cards.forEach((c, index) => {
+          c.position = index;
+      });
+
+      // Update state
       newLists[sourceListIndex] = sourceList;
-      newLists[targetListIndex] = targetList;
-
+      if (sourceListId !== targetListId) {
+          newLists[targetListIndex] = targetList;
+      }
       setLists(newLists);
       setDraggedCard(null);
 
+      // 4. Send API updates for all cards in the target list whose position changed (or the moved card)
+      // Optimistically update all to ensure consistency.
       try {
-          await fetchAPI(`/cards/${cardId}`, {
-              method: 'PUT',
-              body: JSON.stringify({
-                  list_id: targetListId,
-                  position: newPosition,
-              })
-          });
+          // We can just update all cards in the target list to be safe and simple
+          await Promise.all(targetList.cards.map((c, index) => {
+               // Only update if it's the moved card OR if its position in DB (likely) is different.
+               // Since we don't track DB state perfectly, updating all is safer for prototype.
+               return fetchAPI(`/cards/${c.id}`, {
+                  method: 'PUT',
+                  body: JSON.stringify({
+                      list_id: targetListId,
+                      position: index,
+                  })
+              });
+          }));
       } catch (err) {
-          console.error("Failed to update card position", err);
+          console.error("Failed to update card positions", err);
       }
   };
 
@@ -368,6 +421,7 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
                 Private
             </span>
         </div>
+
         <div className="flex items-center gap-3">
             <button 
                 onClick={() => setIsShareModalOpen(true)}
@@ -394,12 +448,16 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
       {/* Board Canvas */}
       <div className="flex-1 overflow-x-auto overflow-y-hidden p-6">
         <div className="flex gap-6 h-full items-start">
-          {lists.map((list) => (
+          {lists.map((list) => {
+            const settings = getListSettings(list.id);
+            const isFiltering = settings.filterText !== '' || settings.filterPriority !== 'all' || settings.sortBy !== 'manual';
+            
+            return (
             <div 
                 key={list.id} 
                 className="min-w-[280px] w-[280px] bg-gray-100 rounded-2xl p-3 flex flex-col max-h-full border border-gray-200/60 shadow-sm relative transition-colors"
                 onDragOver={handleDragOver}
-                onDrop={(e) => handleDrop(e, list.id)}
+                onDrop={(e) => !isFiltering && handleDrop(e, list.id)}
             >
               {/* List Header */}
               <div className="flex justify-between items-center px-3 py-2 mb-1 relative">
@@ -424,24 +482,120 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
                       </h3>
                   )}
                   
-                  <button 
-                      onClick={(e) => handleOpenListMenu(e, list.id)}
-                      className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-200/50 transition-colors"
-                  >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" />
-                      </svg>
-                  </button>
+                  <div className="flex items-center gap-1">
+                      {/* Filter/Sort Toggle */}
+                      <button
+                          onClick={() => updateListSettings(list.id, { isSettingsOpen: !getListSettings(list.id).isSettingsOpen })}
+                          className={`p-1 rounded transition-colors ${getListSettings(list.id).isSettingsOpen || getListSettings(list.id).filterText || getListSettings(list.id).sortBy !== 'manual' || getListSettings(list.id).filterPriority !== 'all' ? 'text-indigo-600 bg-indigo-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200/50'}`}
+                      >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                          </svg>
+                      </button>
+
+                      <button 
+                          onClick={(e) => handleOpenListMenu(e, list.id)}
+                          className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-200/50 transition-colors"
+                      >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" />
+                          </svg>
+                      </button>
+                  </div>
               </div>
+
+              {/* List Settings Popover */}
+              {getListSettings(list.id).isSettingsOpen && (
+                  <div className="mb-3 px-1">
+                      <div className="bg-white p-3 rounded-xl border border-indigo-100 shadow-sm space-y-3">
+                          {/* Search */}
+                          <div>
+                              <input 
+                                  type="text" 
+                                  placeholder="Search tasks..." 
+                                  className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none"
+                                  value={getListSettings(list.id).filterText}
+                                  onChange={(e) => updateListSettings(list.id, { filterText: e.target.value })}
+                              />
+                          </div>
+                          
+                          {/* Sort */}
+                          <div className="space-y-1">
+                              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Sort By</p>
+                              <select 
+                                  className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none bg-white"
+                                  value={getListSettings(list.id).sortBy}
+                                  onChange={(e) => updateListSettings(list.id, { sortBy: e.target.value as any })}
+                              >
+                                  <option value="manual">Manual (Drag & Drop)</option>
+                                  <option value="priority-high">Priority (High → Low)</option>
+                                  <option value="priority-low">Priority (Low → High)</option>
+                                  <option value="date-newest">Newest First</option>
+                                  <option value="date-oldest">Oldest First</option>
+                              </select>
+                          </div>
+
+                           {/* Priority Filter */}
+                           <div className="space-y-1">
+                              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Priority</p>
+                              <div className="flex gap-1">
+                                  {['all', 'low', 'medium', 'high'].map((p) => (
+                                      <button
+                                          key={p}
+                                          onClick={() => updateListSettings(list.id, { filterPriority: p as any })}
+                                          className={`flex-1 text-[10px] py-1 rounded border capitalize ${getListSettings(list.id).filterPriority === p ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-medium' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                                      >
+                                          {p}
+                                      </button>
+                                  ))}
+                              </div>
+                           </div>
+                      </div>
+                  </div>
+              )}
               
               {/* Cards Container */}
               <div className="flex-1 overflow-y-auto space-y-3 px-1 min-h-[10px] custom-scrollbar pb-2">
-                {list.cards.map((card) => (
+                {list.cards
+                .filter(card => {
+                    const settings = getListSettings(list.id);
+                    const matchesSearch = card.title.toLowerCase().includes(settings.filterText.toLowerCase());
+                    const matchesPriority = settings.filterPriority === 'all' || card.priority === settings.filterPriority;
+                    return matchesSearch && matchesPriority;
+                })
+                .sort((a, b) => {
+                    const sortBy = getListSettings(list.id).sortBy;
+                    if (sortBy === 'manual') return a.position - b.position;
+                    
+                    if (sortBy === 'priority-high') {
+                        const pMap = { high: 3, medium: 2, low: 1 };
+                        return pMap[b.priority] - pMap[a.priority];
+                    }
+                    if (sortBy === 'priority-low') {
+                        const pMap = { high: 3, medium: 2, low: 1 };
+                        return pMap[a.priority] - pMap[b.priority];
+                    }
+                    if (sortBy === 'date-newest') {
+                        const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+                        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+                        return dateB - dateA;
+                    }
+                    if (sortBy === 'date-oldest') {
+                         const dateA = a.created_at ? new Date(a.created_at).getTime() : 0;
+                        const dateB = b.created_at ? new Date(b.created_at).getTime() : 0;
+                        return dateA - dateB;
+                    }
+                    
+                    return 0;
+                })
+                .map((card) => (
                   <div 
                     key={card.id} 
-                    draggable={editingCardId !== card.id}
+                    draggable={!isFiltering && editingCardId !== card.id}
                     onDragStart={(e) => handleDragStart(e, card.id, list.id)}
-                    className={`group bg-white p-3 rounded-xl shadow-sm border border-gray-200 hover:border-indigo-300 hover:ring-2 hover:ring-indigo-50/50 cursor-pointer transition-all duration-200 relative ${draggedCard?.cardId === card.id ? 'opacity-50' : ''}`}
+                    onDragOver={handleDragOver}
+                    onDrop={(e) => !isFiltering && handleDrop(e, list.id, card.id)}
+                    className={`group bg-white p-3 rounded-xl shadow-sm border border-gray-200 hover:border-indigo-300 hover:ring-2 hover:ring-indigo-50/50 cursor-pointer transition-all duration-200 relative`}
                   >
                     {editingCardId === card.id ? (
                         <div className="space-y-3">
@@ -559,7 +713,8 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
                 )}
               </form>
             </div>
-          ))}
+            );
+          })}
 
           {/* New List Button */}
           <div className="min-w-[280px]">
