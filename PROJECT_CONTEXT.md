@@ -4,7 +4,7 @@
 **Name:** FloawBoard
 **Description:** A self-hostable, Trello-like Kanban project management application.
 **Type:** Full-stack Web Application (Monorepo).
-**Current State:** Fully functional prototype with auth, CRUD, drag-and-drop, and sharing.
+**Current State:** Fully functional prototype with auth, CRUD, drag-and-drop, and sharing. Supports distributed deployment via `.env` configuration.
 
 ## 2. Technology Stack
 
@@ -15,6 +15,7 @@
 -   **Styling:** Tailwind CSS v4
 -   **State Management:** React Hooks (`useState`, `useEffect`, `useRef`)
 -   **HTTP Client:** Native `fetch` wrapper (`lib/api.ts`)
+-   **Configuration:** Runtime environment variables via `NEXT_PUBLIC_API_URL` (injected at build time or runtime depending on deployment).
 
 ### Backend (`/backend`)
 -   **Language:** Rust
@@ -24,14 +25,17 @@
 -   **Serialization:** Serde / Serde JSON
 -   **Authentication:** Argon2 (hashing) & `jsonwebtoken` (JWT)
 -   **Container Optimization:** Cargo Chef
+-   **Configuration:** `APP_PORT` env var for internal listening port.
 
 ### Database
 -   **System:** PostgreSQL 16 (Alpine)
 -   **Initialization:** `init.sql` script mounted in Docker.
+-   **Connection:** Configurable via `DATABASE_URL` constructed from host/port env vars.
 
 ### Infrastructure
 -   **Orchestration:** Docker Compose
 -   **Network:** Internal bridge network `kanban-network`.
+-   **Configuration:** Centralized `.env` file for managing IP addresses, ports (internal/external), and service locations (distributed hosting support).
 
 ## 3. Directory Structure
 ```text
@@ -54,6 +58,8 @@
 │   │   └── page.tsx        # Root redirect to /login
 │   ├── lib/                # api.ts (Fetch wrapper)
 │   └── Dockerfile
+├── .env                    # Active configuration (Git-ignored)
+├── .env.example            # Configuration template
 ├── docker-compose.yml
 └── README.md
 ```
@@ -129,8 +135,10 @@
 -   **Manual Mapping in `create_board`**: Due to a tuple type inference issue with `sqlx::query_as` combined with the struct having fields not present in the INSERT RETURNING clause, `create_board` uses `sqlx::query(...).map(...)` to manually construct the object.
 -   **Aggregations**: `get_boards` uses `array_agg` and `LEFT JOIN` to fetch member usernames and the owner's email in a single query.
 -   **Security**: Routes (except auth) expect an `Authorization: Bearer <token>` header.
+-   **Configuration**: Uses `APP_PORT` from environment (default 8080).
 
 ### Frontend
+-   **Dynamic API URL**: `lib/api.ts` requires `NEXT_PUBLIC_API_URL` to be set. It throws an error if missing, preventing silent connection failures.
 -   **Drag & Drop**: Implemented using the native HTML5 Drag and Drop API. Logic handles optimistic UI updates followed by an API call to persist the new `list_id` and `position`.
 -   **Menus**: Dropdown menus (for Lists and Cards) use **Fixed Positioning** calculated via JS (`getBoundingClientRect`) to avoid being clipped by `overflow: hidden` or scrollbars on parent list containers.
 -   **Styling**:
@@ -140,9 +148,17 @@
 -   **Redirect**: The root path `/` redirects immediately to `/login`.
 
 ## 7. Running the Project
+
+### Configuration (`.env`)
+The project uses a `.env` file for all configuration.
+1.  Copy the example: `cp .env.example .env`
+2.  Edit `.env` to set your Server IP (`WEB_HOST`, `API_HOST`) and Ports.
+    -   **Distributed Hosting:** You can specify different IPs for `DB_HOST`, `API_HOST`, and `WEB_HOST` to run components on separate servers.
+
+### Deployment
 ```bash
 docker compose up -d --build
 ```
--   Frontend: `http://localhost:3000`
--   Backend: `http://localhost:8080`
--   Database: `localhost:5432`
+-   **Frontend:** Access via `http://${WEB_HOST}:${WEB_PORT}` (e.g., `http://192.168.1.50:50001`)
+-   **Backend:** Access via `http://${API_HOST}:${API_PORT}` (e.g., `http://192.168.1.50:50002`)
+-   **Database:** Exposed on `http://${DB_HOST}:${DB_PORT}` (e.g., `192.168.1.50:50003`)

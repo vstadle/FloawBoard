@@ -61,8 +61,12 @@ async fn main() {
         .layer(CorsLayer::new().allow_origin(Any).allow_headers(Any).allow_methods(Any))
         .with_state(state);
 
-    // Lancer le serveur sur le port 8080
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8080));
+    // Lancer le serveur sur le port défini par APP_PORT ou 8080 par défaut
+    let port = env::var("APP_PORT")
+        .unwrap_or_else(|_| "8080".to_string())
+        .parse::<u16>()
+        .expect("APP_PORT must be a valid number");
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     println!("Lancement du serveur sur {}", addr);
     
     axum::serve(tokio::net::TcpListener::bind(&addr).await.unwrap(), app)

@@ -32,6 +32,6 @@ COPY --from=builder /app/target/release/kanban-api /app/kanban-api
 
 # Configuration de l'exécution
 ENV APP_ENVIRONMENT=production
-EXPOSE 8080
+EXPOSE 50002
 
 CMD ["./kanban-api"]

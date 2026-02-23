@@ -5,16 +5,16 @@ services:
     container_name: kanban-db
     restart: always
     environment:
-      POSTGRES_USER: user_kanban
-      POSTGRES_PASSWORD: password_safe
-      POSTGRES_DB: kanban_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/init.db/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - kanban-network
     ports:
-      - "50003:5432"
+      - "${DB_PORT}:5432"
 
   # --- API RUST ---
   api:
@@ -26,12 +26,14 @@ services:
     depends_on:
       - db
     environment:
-      DATABASE_URL: postgres://user_kanban:password_safe@db:5432/kanban_db
-      APP_PORT: 8080
+      # Construct DATABASE_URL using DB_HOST (which can be external) and DB_PORT
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_HOST}:${DB_PORT}/${POSTGRES_DB}
+      APP_PORT: ${API_INTERNAL_PORT}
+      JWT_SECRET: ${JWT_SECRET}
     networks:
       - kanban-network
     ports:
-      - "50002:8080"
+      - "${API_PORT}:${API_INTERNAL_PORT}"
 
   # --- FRONTEND NEXT.JS ---
   frontend:
@@ -39,17 +41,19 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://192.168.1.50:50002
+        # Construct API URL using API_HOST (which can be external) and API_PORT
+        NEXT_PUBLIC_API_URL: http://${API_HOST}:${API_PORT}
     container_name: kanban-ui
     restart: unless-stopped
     depends_on:
       - api
     environment:
-      NEXT_PUBLIC_API_URL: http://192.168.1.50:50002
+      NEXT_PUBLIC_API_URL: http://${API_HOST}:${API_PORT}
+      PORT: ${WEB_INTERNAL_PORT}
     networks:
       - kanban-network
     ports:
-      - "50001:3000"
+      - "${WEB_PORT}:${WEB_INTERNAL_PORT}"
 
 # --- CONFIGURATION RÉSEAUX ET VOLUMES ---
 networks:
