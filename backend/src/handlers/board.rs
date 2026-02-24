@@ -517,9 +517,15 @@ pub async fn update_card(
     Path(card_id): Path<Uuid>,
     Json(payload): Json<UpdateCard>,
 ) -> impl IntoResponse {
-    let existing = sqlx::query_as::<_, Card>("SELECT * FROM cards WHERE id = $1")
+    // Start transaction to ensure atomicity and prevent collisions
+    let mut tx = match state.db.begin().await {
+        Ok(tx) => tx,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+    };
+
+    let existing = sqlx::query_as::<_, Card>("SELECT * FROM cards WHERE id = $1 FOR UPDATE")
         .bind(card_id)
-        .fetch_optional(&state.db)
+        .fetch_optional(&mut *tx)
         .await;
 
     let existing_card = match existing {
@@ -548,11 +554,16 @@ pub async fn update_card(
     .bind(position)
     .bind(list_id)
     .bind(card_id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await;
 
     match result {
-        Ok(card) => (StatusCode::OK, Json(card)).into_response(),
+        Ok(card) => {
+            if tx.commit().await.is_err() {
+                return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to commit transaction").into_response();
+            }
+            (StatusCode::OK, Json(card)).into_response()
+        },
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
     }
 }
