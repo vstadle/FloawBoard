@@ -260,10 +260,22 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
       // 2. Insert into target
       let newPositionIndex;
       if (targetCardId) {
-          const targetCardIndex = targetList.cards.findIndex(c => c.id === targetCardId);
-          // If we removed the card from before the target index in the same list, the index shifted down.
-          // But since we already removed it, the targetCardIndex in the *modified* array is correct for insertion "before".
-          newPositionIndex = targetCardIndex !== -1 ? targetCardIndex : targetList.cards.length;
+          const targetCardIndexInModified = targetList.cards.findIndex(c => c.id === targetCardId);
+          
+          if (sourceListId === targetListId) {
+              // Within same list: determine if we are moving up or down
+              const originalTargetIndex = lists[sourceListIndex].cards.findIndex(c => c.id === targetCardId);
+              if (cardIndex < originalTargetIndex) {
+                  // Moving DOWN: insert AFTER the target
+                  newPositionIndex = targetCardIndexInModified + 1;
+              } else {
+                  // Moving UP: insert BEFORE the target
+                  newPositionIndex = targetCardIndexInModified;
+              }
+          } else {
+              // Different list: always insert BEFORE target
+              newPositionIndex = targetCardIndexInModified !== -1 ? targetCardIndexInModified : targetList.cards.length;
+          }
       } else {
           newPositionIndex = targetList.cards.length;
       }
@@ -542,7 +554,7 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
                       {/* Filter/Sort Toggle */}
                       <button
                           onClick={() => updateListSettings(list.id, { isSettingsOpen: !getListSettings(list.id).isSettingsOpen })}
-                          className={`p-1 rounded transition-colors ${getListSettings(list.id).isSettingsOpen || getListSettings(list.id).filterText || getListSettings(list.id).sortBy !== 'manual' || getListSettings(list.id).filterPriority !== 'all' ? 'text-indigo-600 bg-indigo-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200/50'}`}
+                          className={`p-1 rounded transition-colors ${getListSettings(list.id).isSettingsOpen ? 'bg-gray-200 text-gray-700' : hasActiveFilter ? 'text-indigo-600 bg-indigo-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200/50'}`}
                       >
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
@@ -606,6 +618,20 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
                                   ))}
                               </div>
                            </div>
+
+                           {hasActiveFilter && (
+                               <button
+                                   onClick={() => updateListSettings(list.id, { 
+                                       filterText: '', 
+                                       filterPriority: 'all', 
+                                       sortBy: 'manual',
+                                       isSettingsOpen: false 
+                                   })}
+                                   className="w-full text-[10px] font-semibold text-indigo-600 hover:text-indigo-800 py-1.5 border border-indigo-100 rounded-lg hover:bg-indigo-50 transition-colors"
+                               >
+                                   Clear and close filters
+                               </button>
+                           )}
                       </div>
                   </div>
               )}
