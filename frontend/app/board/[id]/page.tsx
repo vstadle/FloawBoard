@@ -503,14 +503,16 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
         <div className="flex gap-6 h-full items-start">
           {lists.map((list) => {
             const settings = getListSettings(list.id);
-            const isFiltering = settings.filterText !== '' || settings.filterPriority !== 'all' || settings.sortBy !== 'manual';
+            // Only disable drag and drop if a sort or filter is ACTUALLY active.
+            // Opening the settings menu itself should not disable DND.
+            const hasActiveFilter = settings.filterText !== '' || settings.filterPriority !== 'all' || settings.sortBy !== 'manual';
             
             return (
             <div 
                 key={list.id} 
                 className="min-w-[280px] w-[280px] bg-gray-100 rounded-2xl p-3 flex flex-col max-h-full border border-gray-200/60 shadow-sm relative transition-colors"
                 onDragOver={handleDragOver}
-                onDrop={(e) => !isFiltering && handleDrop(e, list.id)}
+                onDrop={(e) => !hasActiveFilter && handleDrop(e, list.id)}
             >
               {/* List Header */}
               <div className="flex justify-between items-center px-3 py-2 mb-1 relative">
@@ -645,10 +647,10 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
                 .map((card) => (
                   <div 
                     key={card.id} 
-                    draggable={!isFiltering && editingCardId !== card.id}
+                    draggable={!hasActiveFilter && editingCardId !== card.id}
                     onDragStart={(e) => handleDragStart(e, card.id, list.id)}
                     onDragOver={handleDragOver}
-                    onDrop={(e) => !isFiltering && handleDrop(e, list.id, card.id)}
+                    onDrop={(e) => !hasActiveFilter && handleDrop(e, list.id, card.id)}
                     className={`group bg-white p-3 rounded-xl shadow-sm border border-gray-200 hover:border-indigo-300 hover:ring-2 hover:ring-indigo-50/50 cursor-pointer transition-all duration-200 relative`}
                   >
                     {editingCardId === card.id ? (

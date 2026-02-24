@@ -154,3 +154,20 @@ pub async fn get_me(
 
     (StatusCode::OK, Json(user)).into_response()
 }
+
+// Helper to extract user_id from Authorization header
+pub fn get_user_id_from_header(headers: &HeaderMap, secret: &str) -> Option<Uuid> {
+    let auth_header = headers.get("Authorization")?.to_str().ok()?;
+    if !auth_header.starts_with("Bearer ") {
+        return None;
+    }
+    let token = &auth_header[7..];
+    
+    let token_data = decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::default(),
+    ).ok()?;
+
+    Uuid::parse_str(&token_data.claims.sub).ok()
+}

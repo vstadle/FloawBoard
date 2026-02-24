@@ -4,31 +4,22 @@ use uuid::Uuid;
 use chrono::{DateTime, Utc};
 
 #[derive(Debug, Serialize, FromRow)]
-pub struct Board {
+pub struct List {
     pub id: Uuid,
-    pub user_id: Uuid,
+    pub board_id: Uuid,
     pub title: String,
+    pub position: i32,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
-    #[sqlx(default)]
-    pub members: Vec<String>, // List of usernames
-    #[sqlx(default)]
-    pub owner_email: String,
-    #[sqlx(default)]
-    pub owner_username: String,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CreateBoard {
+pub struct CreateList {
     pub title: String,
+    pub position: i32,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct UpdateBoard {
+pub struct UpdateList {
     pub title: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AddMember {
-    pub email: String,
 }
