@@ -11,6 +11,7 @@ interface Board {
   created_at?: string;
   members: string[]; 
   owner_email: string;
+  owner_username: string;
 }
 
 export default function DashboardPage() {
@@ -24,6 +25,14 @@ export default function DashboardPage() {
   const [menuPosition, setMenuPosition] = useState<{ top: number, left: number }>({ top: 0, left: 0 });
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
   const [editingBoardTitle, setEditingBoardTitle] = useState('');
+
+  // Custom Confirm Modal State
+  const [confirmConfig, setConfirmConfig] = useState<{
+      isOpen: boolean;
+      title: string;
+      message: string;
+      onConfirm: () => void;
+  } | null>(null);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -85,15 +94,22 @@ export default function DashboardPage() {
   };
 
   const deleteBoard = async (boardId: string) => {
-      if (!confirm("Are you sure you want to delete this board?")) return;
-
-      try {
-          await fetchAPI(`/boards/${boardId}`, { method: 'DELETE' });
-          setBoards(boards.filter(b => b.id !== boardId));
-          setOpenMenuId(null);
-      } catch (err) {
-          console.error(err);
-      }
+      setConfirmConfig({
+          isOpen: true,
+          title: 'Delete Board',
+          message: 'Are you sure you want to delete this board? All lists and cards will be permanently removed. This action cannot be undone.',
+          onConfirm: async () => {
+              try {
+                  await fetchAPI(`/boards/${boardId}`, { method: 'DELETE' });
+                  setBoards(boards.filter(b => b.id !== boardId));
+                  setOpenMenuId(null);
+                  setConfirmConfig(null);
+              } catch (err) {
+                  console.error(err);
+                  setConfirmConfig(null);
+              }
+          }
+      });
   };
 
   const startEditingBoard = (board: Board) => {
@@ -216,7 +232,14 @@ export default function DashboardPage() {
                     
                     {/* Member Avatars */}
                     <div className="flex -space-x-2 overflow-hidden">
-                        {board.members && board.members.slice(0, 3).map((member, index) => (
+                        {/* Owner Avatar */}
+                        <div 
+                            className="inline-flex items-center justify-center h-6 w-6 rounded-full ring-2 ring-white bg-indigo-600 text-[10px] font-bold text-white leading-none"
+                            title={`${board.owner_username} (Owner)`}
+                        >
+                            {getInitials(board.owner_username)}
+                        </div>
+                        {board.members && board.members.slice(0, 2).map((member, index) => (
                             <div 
                                 key={index}
                                 className="inline-flex items-center justify-center h-6 w-6 rounded-full ring-2 ring-white bg-indigo-100 text-[10px] font-bold text-indigo-600 leading-none"
@@ -225,9 +248,9 @@ export default function DashboardPage() {
                                 {getInitials(member)}
                             </div>
                         ))}
-                        {board.members && board.members.length > 3 && (
+                        {board.members && board.members.length > 2 && (
                             <div className="inline-flex items-center justify-center h-6 w-6 rounded-full ring-2 ring-white bg-gray-100 text-[10px] font-bold text-gray-600 leading-none">
-                                +{board.members.length - 3}
+                                +{board.members.length - 2}
                             </div>
                         )}
                     </div>
@@ -358,6 +381,39 @@ export default function DashboardPage() {
                 </form>
             </div>
         </div>
+      )}
+
+      {/* Custom Confirm Modal */}
+      {confirmConfig && confirmConfig.isOpen && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden transform animate-in zoom-in-95 duration-200">
+                  <div className="p-6">
+                      <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mb-4">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                      </div>
+                      <h3 className="text-lg font-bold text-gray-900 mb-2">{confirmConfig.title}</h3>
+                      <p className="text-sm text-gray-500 leading-relaxed">
+                          {confirmConfig.message}
+                      </p>
+                  </div>
+                  <div className="bg-gray-50 px-6 py-4 flex justify-end gap-3">
+                      <button
+                          onClick={() => setConfirmConfig(null)}
+                          className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+                      >
+                          Cancel
+                      </button>
+                      <button
+                          onClick={confirmConfig.onConfirm}
+                          className="px-4 py-2 text-sm font-medium bg-red-600 text-white hover:bg-red-700 rounded-lg shadow-sm transition-colors"
+                      >
+                          Confirm
+                      </button>
+                  </div>
+              </div>
+          </div>
       )}
     </div>
   );

@@ -45,7 +45,8 @@ pub async fn get_boards(
         SELECT 
             b.id, b.user_id, b.title, b.created_at, b.updated_at,
             owner.email as owner_email,
-            COALESCE(array_agg(u.username) FILTER (WHERE u.username IS NOT NULL), '{}')::text[] as members
+            owner.username as owner_username,
+            COALESCE(array_agg(u.username) FILTER (WHERE u.username IS NOT NULL AND u.id != b.user_id), '{}')::text[] as members
         FROM boards b
         JOIN users owner ON b.user_id = owner.id
         LEFT JOIN board_members bm ON b.id = bm.board_id
@@ -55,7 +56,7 @@ pub async fn get_boards(
             LEFT JOIN board_members bm2 ON b2.id = bm2.board_id
             WHERE b2.user_id = $1 OR bm2.user_id = $1
         )
-        GROUP BY b.id, owner.email
+        GROUP BY b.id, owner.email, owner.username
         "#
     )
     .bind(user_id)
@@ -152,8 +153,9 @@ pub async fn create_board(
         title,
         created_at,
         updated_at,
-        members: vec![username],
+        members: vec![], // No other members yet
         owner_email: email,
+        owner_username: username,
     };
 
     (StatusCode::CREATED, Json(board)).into_response()
@@ -169,13 +171,14 @@ pub async fn get_board_details(
         SELECT 
             b.id, b.user_id, b.title, b.created_at, b.updated_at,
             owner.email as owner_email,
-            COALESCE(array_agg(u.username) FILTER (WHERE u.username IS NOT NULL), '{}')::text[] as members
+            owner.username as owner_username,
+            COALESCE(array_agg(u.username) FILTER (WHERE u.username IS NOT NULL AND u.id != b.user_id), '{}')::text[] as members
         FROM boards b
         JOIN users owner ON b.user_id = owner.id
         LEFT JOIN board_members bm ON b.id = bm.board_id
         LEFT JOIN users u ON bm.user_id = u.id
         WHERE b.id = $1
-        GROUP BY b.id, owner.email
+        GROUP BY b.id, owner.email, owner.username
         "#
     )
         .bind(board_id)
@@ -205,12 +208,13 @@ pub async fn update_board(
         SELECT 
             u.id, u.user_id, u.title, u.created_at, u.updated_at,
             owner.email as owner_email,
-            COALESCE(array_agg(usr.username) FILTER (WHERE usr.username IS NOT NULL), '{}')::text[] as members
+            owner.username as owner_username,
+            COALESCE(array_agg(usr.username) FILTER (WHERE usr.username IS NOT NULL AND usr.id != u.user_id), '{}')::text[] as members
         FROM updated u
         JOIN users owner ON u.user_id = owner.id
         LEFT JOIN board_members bm ON u.id = bm.board_id
         LEFT JOIN users usr ON bm.user_id = usr.id
-        GROUP BY u.id, u.user_id, u.title, u.created_at, u.updated_at, owner.email
+        GROUP BY u.id, u.user_id, u.title, u.created_at, u.updated_at, owner.email, owner.username
         "#
     )
     .bind(payload.title)
@@ -248,9 +252,35 @@ pub async fn delete_board(
 
 pub async fn add_member(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(board_id): Path<Uuid>,
     Json(payload): Json<AddMember>,
 ) -> impl IntoResponse {
+    let user_id = match get_user_id_from_header(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
+    };
+
+    // Check if the requester is the owner of the board
+    let board_opt = sqlx::query("SELECT user_id FROM boards WHERE id = $1")
+        .bind(board_id)
+        .map(|row: sqlx::postgres::PgRow| {
+            use sqlx::Row;
+            row.get::<Uuid, _>("user_id")
+        })
+        .fetch_optional(&state.db)
+        .await;
+
+    match board_opt {
+        Ok(Some(owner_id)) => {
+            if owner_id != user_id {
+                return (StatusCode::FORBIDDEN, "Only the owner can invite members").into_response();
+            }
+        }
+        Ok(None) => return (StatusCode::NOT_FOUND, "Board not found").into_response(),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+    }
+
     // 1. Find user by email
     let user_opt = sqlx::query_as::<_, User>("SELECT * FROM users WHERE email = $1")
         .bind(&payload.email)
@@ -278,6 +308,69 @@ pub async fn add_member(
 
     match result {
         Ok(_) => (StatusCode::OK, Json(serde_json::json!({ "message": "Member added" }))).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+    }
+}
+
+pub async fn remove_member(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((board_id, username)): Path<(Uuid, String)>,
+) -> impl IntoResponse {
+    let user_id = match get_user_id_from_header(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
+    };
+
+    // 1. Check if the requester is the owner of the board
+    let board_opt = sqlx::query("SELECT user_id FROM boards WHERE id = $1")
+        .bind(board_id)
+        .map(|row: sqlx::postgres::PgRow| {
+            use sqlx::Row;
+            row.get::<Uuid, _>("user_id")
+        })
+        .fetch_optional(&state.db)
+        .await;
+
+    match board_opt {
+        Ok(Some(owner_id)) => {
+            if owner_id != user_id {
+                return (StatusCode::FORBIDDEN, "Only the owner can remove members").into_response();
+            }
+        }
+        Ok(None) => return (StatusCode::NOT_FOUND, "Board not found").into_response(),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+    }
+
+    // 2. Find user by username
+    let user_opt = sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = $1")
+        .bind(&username)
+        .fetch_optional(&state.db)
+        .await;
+
+    let user = match user_opt {
+        Ok(Some(u)) => u,
+        Ok(None) => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+    };
+
+    // 2. Remove from board_members
+    let result = sqlx::query(
+        "DELETE FROM board_members WHERE board_id = $1 AND user_id = $2"
+    )
+    .bind(board_id)
+    .bind(user.id)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(res) => {
+            if res.rows_affected() > 0 {
+                (StatusCode::OK, Json(serde_json::json!({ "message": "Member removed" }))).into_response()
+            } else {
+                (StatusCode::NOT_FOUND, "Member not found").into_response()
+            }
+        }
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
     }
 }

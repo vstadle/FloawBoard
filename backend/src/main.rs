@@ -9,7 +9,7 @@ use std::env;
 use tower_http::cors::{CorsLayer, Any};
 use crate::handlers::user::{register_user, login_user, get_me, AppState};
 use crate::handlers::board::{
-    get_boards, create_board, get_board_details, update_board, delete_board, add_member,
+    get_boards, create_board, get_board_details, update_board, delete_board, add_member, remove_member,
     get_lists, create_list, update_list, delete_list,
     get_cards, create_card, update_card, delete_card
 };
@@ -52,6 +52,7 @@ async fn main() {
         .route("/boards/:board_id", get(get_board_details).put(update_board).delete(delete_board))
         // Board Members
         .route("/boards/:board_id/members", post(add_member))
+        .route("/boards/:board_id/members/:username", delete(remove_member))
         // List Routes
         .route("/boards/:board_id/lists", get(get_lists).post(create_list))
         .route("/lists/:list_id", put(update_list).delete(delete_list))

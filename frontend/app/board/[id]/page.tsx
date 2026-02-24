@@ -23,7 +23,11 @@ interface List {
 
 interface Board {
   id: string;
+  user_id: string;
   title: string;
+  members: string[];
+  owner_email: string;
+  owner_username: string;
 }
 
 const PRIORITY_COLORS = {
@@ -37,6 +41,7 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
   const boardId = unwrappedParams.id;
   const [board, setBoard] = useState<Board | null>(null);
   const [lists, setLists] = useState<List[]>([]);
+  const [currentUser, setCurrentUser] = useState<{ id: string, email: string } | null>(null);
   const [newListTitle, setNewListTitle] = useState('');
   
   // Create Card States
@@ -92,6 +97,14 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
   const [shareEmail, setShareEmail] = useState('');
   const [shareMessage, setShareMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
+  // Custom Confirm Modal State
+  const [confirmConfig, setConfirmConfig] = useState<{
+      isOpen: boolean;
+      title: string;
+      message: string;
+      onConfirm: () => void;
+  } | null>(null);
+
   const menuListRef = useRef<HTMLDivElement>(null);
   const menuCardRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -105,7 +118,11 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
 
     const loadData = async () => {
       try {
-        const boardData = await fetchAPI(`/boards/${boardId}`);
+        const [userData, boardData] = await Promise.all([
+            fetchAPI('/me'),
+            fetchAPI(`/boards/${boardId}`)
+        ]);
+        setCurrentUser(userData);
         setBoard(boardData);
 
         const listsData: List[] = await fetchAPI(`/boards/${boardId}/lists`);
@@ -170,9 +187,34 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
           });
           setShareMessage({ type: 'success', text: 'User invited successfully!' });
           setShareEmail('');
+          
+          // Refresh board details to update the members list
+          const updatedBoardData = await fetchAPI(`/boards/${boardId}`);
+          setBoard(updatedBoardData);
       } catch (err: any) {
           setShareMessage({ type: 'error', text: err.message || 'Failed to invite user.' });
       }
+  };
+
+  const handleRemoveMember = async (username: string) => {
+      setConfirmConfig({
+          isOpen: true,
+          title: 'Remove Member',
+          message: `Are you sure you want to remove ${username} from this board?`,
+          onConfirm: async () => {
+              try {
+                  await fetchAPI(`/boards/${boardId}/members/${username}`, {
+                      method: 'DELETE'
+                  });
+                  const updatedBoardData = await fetchAPI(`/boards/${boardId}`);
+                  setBoard(updatedBoardData);
+                  setConfirmConfig(null);
+              } catch (err: any) {
+                  alert(err.message || 'Failed to remove member.');
+                  setConfirmConfig(null);
+              }
+          }
+      });
   };
 
   // --- DRAG AND DROP ---
@@ -284,15 +326,22 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
   };
 
   const deleteList = async (listId: string) => {
-      if(!confirm("Are you sure you want to delete this list?")) return;
-      
-      try {
-          await fetchAPI(`/lists/${listId}`, { method: 'DELETE' });
-          setLists(lists.filter(l => l.id !== listId));
-          setOpenMenuListId(null);
-      } catch (err) {
-          console.error(err);
-      }
+      setConfirmConfig({
+          isOpen: true,
+          title: 'Delete List',
+          message: 'Are you sure you want to delete this list and all its cards? This action cannot be undone.',
+          onConfirm: async () => {
+              try {
+                  await fetchAPI(`/lists/${listId}`, { method: 'DELETE' });
+                  setLists(lists.filter(l => l.id !== listId));
+                  setOpenMenuListId(null);
+                  setConfirmConfig(null);
+              } catch (err) {
+                  console.error(err);
+                  setConfirmConfig(null);
+              }
+          }
+      });
   };
 
   const startEditingList = (list: List) => {
@@ -355,20 +404,27 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
   };
 
   const deleteCard = async (cardId: string, listId: string) => {
-      if(!confirm("Are you sure you want to delete this card?")) return;
-
-      try {
-          await fetchAPI(`/cards/${cardId}`, { method: 'DELETE' });
-          setLists(lists.map(list => {
-              if (list.id === listId) {
-                  return { ...list, cards: list.cards.filter(c => c.id !== cardId) };
+      setConfirmConfig({
+          isOpen: true,
+          title: 'Delete Card',
+          message: 'Are you sure you want to delete this card?',
+          onConfirm: async () => {
+              try {
+                  await fetchAPI(`/cards/${cardId}`, { method: 'DELETE' });
+                  setLists(lists.map(list => {
+                      if (list.id === listId) {
+                          return { ...list, cards: list.cards.filter(c => c.id !== cardId) };
+                      }
+                      return list;
+                  }));
+                  setOpenMenuCardId(null);
+                  setConfirmConfig(null);
+              } catch (err) {
+                  console.error(err);
+                  setConfirmConfig(null);
               }
-              return list;
-          }));
-          setOpenMenuCardId(null);
-      } catch (err) {
-          console.error(err);
-      }
+          }
+      });
   };
 
   const startEditingCard = (card: Card) => {
@@ -763,7 +819,7 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
       {/* Share Modal */}
       {isShareModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100 flex flex-col max-h-[90vh]">
                 <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
                     <h3 className="text-lg font-bold text-gray-900">Share Board</h3>
                     <button onClick={() => setIsShareModalOpen(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
@@ -772,29 +828,70 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
                         </svg>
                     </button>
                 </div>
-                <form onSubmit={handleShareBoard} className="p-6">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Invite User</label>
-                    <div className="flex gap-2">
-                        <input
-                            type="email"
-                            placeholder="Enter email address"
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                            value={shareEmail}
-                            onChange={(e) => setShareEmail(e.target.value)}
-                        />
-                        <button
-                            type="submit"
-                            className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors whitespace-nowrap"
-                        >
-                            Invite
-                        </button>
-                    </div>
-                    {shareMessage && (
-                        <p className={`mt-3 text-sm ${shareMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
-                            {shareMessage.text}
-                        </p>
+                <div className="p-6 overflow-y-auto custom-scrollbar flex-1">
+                    {currentUser?.id === board.user_id && (
+                        <form onSubmit={handleShareBoard} className="mb-6">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Invite User</label>
+                            <div className="flex gap-2">
+                                <input
+                                    type="email"
+                                    placeholder="Enter email address"
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                                    value={shareEmail}
+                                    onChange={(e) => setShareEmail(e.target.value)}
+                                />
+                                <button
+                                    type="submit"
+                                    className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors whitespace-nowrap"
+                                >
+                                    Invite
+                                </button>
+                            </div>
+                            {shareMessage && (
+                                <p className={`mt-3 text-sm ${shareMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                                    {shareMessage.text}
+                                </p>
+                            )}
+                        </form>
                     )}
-                </form>
+
+                    <div>
+                        <h4 className="text-sm font-medium text-gray-700 mb-3">Members</h4>
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm shrink-0">
+                                    {board.owner_username.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-gray-900 truncate">{board.owner_username}</p>
+                                    <p className="text-xs text-gray-500">{board.owner_email} • Owner</p>
+                                </div>
+                            </div>
+                            {board.members.map((member, idx) => (
+                                <div key={idx} className="flex items-center gap-3 group/member">
+                                    <div className="w-8 h-8 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center font-bold text-sm shrink-0">
+                                        {member.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium text-gray-900 truncate">{member}</p>
+                                        <p className="text-xs text-gray-500">Member</p>
+                                    </div>
+                                    {currentUser?.id === board.user_id && (
+                                        <button 
+                                            onClick={() => handleRemoveMember(member)}
+                                            className="opacity-0 group-hover/member:opacity-100 p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                            title="Remove member"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                            </svg>
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
       )}
@@ -857,6 +954,39 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
                 Delete
             </button>
         </div>
+      )}
+
+      {/* Custom Confirm Modal */}
+      {confirmConfig && confirmConfig.isOpen && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden transform animate-in zoom-in-95 duration-200">
+                  <div className="p-6">
+                      <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mb-4">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                      </div>
+                      <h3 className="text-lg font-bold text-gray-900 mb-2">{confirmConfig.title}</h3>
+                      <p className="text-sm text-gray-500 leading-relaxed">
+                          {confirmConfig.message}
+                      </p>
+                  </div>
+                  <div className="bg-gray-50 px-6 py-4 flex justify-end gap-3">
+                      <button
+                          onClick={() => setConfirmConfig(null)}
+                          className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 rounded-lg transition-colors"
+                      >
+                          Cancel
+                      </button>
+                      <button
+                          onClick={confirmConfig.onConfirm}
+                          className="px-4 py-2 text-sm font-medium bg-red-600 text-white hover:bg-red-700 rounded-lg shadow-sm transition-colors"
+                      >
+                          Confirm
+                      </button>
+                  </div>
+              </div>
+          </div>
       )}
     </div>
   );

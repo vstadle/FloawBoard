@@ -14,6 +14,8 @@ pub struct Board {
     pub members: Vec<String>, // List of usernames
     #[sqlx(default)]
     pub owner_email: String,
+    #[sqlx(default)]
+    pub owner_username: String,
 }
 
 #[derive(Debug, Deserialize)]
