@@ -1,19 +1,35 @@
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
 use uuid::Uuid;
 use crate::models::task::{Card, CreateCard, UpdateCard};
-use crate::handlers::user::AppState;
+use crate::handlers::user::{AppState, get_user_id_from_header};
 
 pub async fn get_cards(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(list_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    let result = sqlx::query_as::<_, Card>("SELECT * FROM cards WHERE list_id = $1 ORDER BY position ASC")
+    let user_id = match get_user_id_from_header(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
+    };
+
+    let result = sqlx::query_as::<_, Card>(
+        r#"
+        SELECT c.* FROM cards c
+        JOIN lists l ON c.list_id = l.id
+        JOIN boards b ON l.board_id = b.id
+        LEFT JOIN board_members bm ON b.id = bm.board_id
+        WHERE c.list_id = $1 AND (b.user_id = $2 OR bm.user_id = $2)
+        ORDER BY c.position ASC
+        "#
+    )
         .bind(list_id)
+        .bind(user_id)
         .fetch_all(&state.db)
         .await;
 
@@ -25,9 +41,35 @@ pub async fn get_cards(
 
 pub async fn create_card(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(list_id): Path<Uuid>,
     Json(payload): Json<CreateCard>,
 ) -> impl IntoResponse {
+    let user_id = match get_user_id_from_header(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
+    };
+
+    // Check access first (via list -> board)
+    let has_access = sqlx::query(
+        r#"
+        SELECT 1 FROM lists l
+        JOIN boards b ON l.board_id = b.id
+        LEFT JOIN board_members bm ON b.id = bm.board_id
+        WHERE l.id = $1 AND (b.user_id = $2 OR bm.user_id = $2)
+        "#
+    )
+    .bind(list_id)
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await;
+
+    match has_access {
+        Ok(Some(_)) => {},
+        Ok(None) => return (StatusCode::FORBIDDEN, "Access denied or List not found").into_response(),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+    }
+
     let card_id = Uuid::new_v4();
     let priority = payload.priority.unwrap_or_else(|| "low".to_string());
     
@@ -55,23 +97,40 @@ pub async fn create_card(
 
 pub async fn update_card(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(card_id): Path<Uuid>,
     Json(payload): Json<UpdateCard>,
 ) -> impl IntoResponse {
+    let user_id = match get_user_id_from_header(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
+    };
+
     // Start transaction to ensure atomicity and prevent collisions
     let mut tx = match state.db.begin().await {
         Ok(tx) => tx,
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
     };
 
-    let existing = sqlx::query_as::<_, Card>("SELECT * FROM cards WHERE id = $1 FOR UPDATE")
+    // Check access & lock row
+    let existing = sqlx::query_as::<_, Card>(
+        r#"
+        SELECT c.* FROM cards c
+        JOIN lists l ON c.list_id = l.id
+        JOIN boards b ON l.board_id = b.id
+        LEFT JOIN board_members bm ON b.id = bm.board_id
+        WHERE c.id = $1 AND (b.user_id = $2 OR bm.user_id = $2)
+        FOR UPDATE OF c
+        "#
+    )
         .bind(card_id)
+        .bind(user_id)
         .fetch_optional(&mut *tx)
         .await;
 
     let existing_card = match existing {
         Ok(Some(card)) => card,
-        Ok(None) => return (StatusCode::NOT_FOUND, "Card not found").into_response(),
+        Ok(None) => return (StatusCode::FORBIDDEN, "Access denied or Card not found").into_response(),
         Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
     };
 
@@ -111,10 +170,28 @@ pub async fn update_card(
 
 pub async fn delete_card(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(card_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    let result = sqlx::query("DELETE FROM cards WHERE id = $1")
+    let user_id = match get_user_id_from_header(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
+    };
+
+    let result = sqlx::query(
+        r#"
+        DELETE FROM cards
+        WHERE id = $1 AND EXISTS (
+            SELECT 1 FROM cards c
+            JOIN lists l ON c.list_id = l.id
+            JOIN boards b ON l.board_id = b.id
+            LEFT JOIN board_members bm ON b.id = bm.board_id
+            WHERE c.id = $1 AND (b.user_id = $2 OR bm.user_id = $2)
+        )
+        "#
+    )
         .bind(card_id)
+        .bind(user_id)
         .execute(&state.db)
         .await;
 
@@ -123,7 +200,7 @@ pub async fn delete_card(
             if res.rows_affected() > 0 {
                 (StatusCode::NO_CONTENT).into_response()
             } else {
-                (StatusCode::NOT_FOUND, "Card not found").into_response()
+                (StatusCode::FORBIDDEN, "Access denied or Card not found").into_response()
             }
         }
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),

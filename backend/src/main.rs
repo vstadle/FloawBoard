@@ -6,7 +6,10 @@ use std::net::SocketAddr;
 use sqlx::postgres::PgPoolOptions;
 use dotenvy::dotenv;
 use std::env;
+use std::sync::Arc;
 use tower_http::cors::{CorsLayer, Any};
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower::ServiceBuilder;
 use crate::handlers::user::{register_user, login_user, get_me, AppState};
 use crate::handlers::board::{
     get_boards, create_board, get_board_details, update_board, delete_board, add_member, remove_member,
@@ -40,6 +43,16 @@ async fn main() {
         jwt_secret,
     };
 
+    // Configuration du Rate Limiter (Anti-Spam)
+    // Autorise 5 requêtes par seconde avec un burst de 10 par IP
+    let governor_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(5)
+            .burst_size(10)
+            .finish()
+            .unwrap(),
+    );
+
     // Configurer le routeur avec les routes et l'état
     let app = Router::new()
         .route("/", get(|| async { "API Kanban en Rust : Opérationnelle 🦀" }))
@@ -59,7 +72,13 @@ async fn main() {
         // Card Routes
         .route("/lists/:list_id/cards", get(get_cards).post(create_card))
         .route("/cards/:card_id", put(update_card).delete(delete_card))
-        .layer(CorsLayer::new().allow_origin(Any).allow_headers(Any).allow_methods(Any))
+        .layer(
+            ServiceBuilder::new()
+                .layer(CorsLayer::new().allow_origin(Any).allow_headers(Any).allow_methods(Any))
+                .layer(GovernorLayer {
+                    config: governor_conf,
+                })
+        )
         .with_state(state);
 
     // Lancer le serveur sur le port défini par APP_PORT ou 8080 par défaut
@@ -70,7 +89,8 @@ async fn main() {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     println!("Lancement du serveur sur {}", addr);
     
-    axum::serve(tokio::net::TcpListener::bind(&addr).await.unwrap(), app)
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .await
         .unwrap();
 }

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { fetchAPI } from '@/lib/api';
+import { validateEmail, validatePassword, validateUsername } from '@/lib/validation';
 
 export default function RegisterPage() {
   const [username, setUsername] = useState('');
@@ -17,6 +18,25 @@ export default function RegisterPage() {
     e.preventDefault();
     setError('');
 
+    // Input Validation
+    const emailError = validateEmail(email);
+    if (emailError) {
+        setError(emailError);
+        return;
+    }
+
+    const usernameError = validateUsername(username);
+    if (usernameError) {
+        setError(usernameError);
+        return;
+    }
+
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+        setError(passwordError);
+        return;
+    }
+
     if (password !== confirmPassword) {
         setError("Passwords do not match");
         return;
@@ -29,8 +49,12 @@ export default function RegisterPage() {
       });
 
       router.push('/login');
-    } catch (err: any) {
-      setError(err.message || 'Registration failed');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Registration failed');
+      }
     }
   };
 

@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { fetchAPI, getToken, removeToken } from '@/lib/api';
+import { validateTitle } from '@/lib/validation';
 
 interface Board {
   id: string;
@@ -18,6 +19,7 @@ export default function DashboardPage() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [newBoardTitle, setNewBoardTitle] = useState('');
   const [error, setError] = useState('');
+  const [createError, setCreateError] = useState(''); // Local error for create modal
   const [isModalOpen, setIsModalOpen] = useState(false);
   
   // Menu States
@@ -25,6 +27,7 @@ export default function DashboardPage() {
   const [menuPosition, setMenuPosition] = useState<{ top: number, left: number }>({ top: 0, left: 0 });
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
   const [editingBoardTitle, setEditingBoardTitle] = useState('');
+  const [editError, setEditError] = useState(''); // Separate error state for edit modal
 
   // Custom Confirm Modal State
   const [confirmConfig, setConfirmConfig] = useState<{
@@ -36,6 +39,23 @@ export default function DashboardPage() {
 
   const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  // Handle keyboard shortcuts for confirmation modal
+  useEffect(() => {
+      if (!confirmConfig?.isOpen) return;
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+          if (e.key === 'Enter') {
+              e.preventDefault();
+              confirmConfig.onConfirm();
+          } else if (e.key === 'Escape') {
+              setConfirmConfig(null);
+          }
+      };
+
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [confirmConfig]);
 
   useEffect(() => {
     const token = getToken();
@@ -65,7 +85,13 @@ export default function DashboardPage() {
 
   const handleCreateBoard = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newBoardTitle.trim()) return;
+    setCreateError('');
+
+    const titleError = validateTitle(newBoardTitle, "Board title");
+    if (titleError) {
+        setCreateError(titleError);
+        return;
+    }
 
     try {
       const newBoard = await fetchAPI('/boards', {
@@ -75,8 +101,12 @@ export default function DashboardPage() {
       setBoards([...boards, newBoard]);
       setNewBoardTitle('');
       setIsModalOpen(false);
-    } catch (err: any) {
-      setError(err.message || 'Failed to create board');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setCreateError(err.message);
+      } else {
+        setCreateError('Failed to create board');
+      }
     }
   };
 
@@ -115,12 +145,21 @@ export default function DashboardPage() {
   const startEditingBoard = (board: Board) => {
       setEditingBoardId(board.id);
       setEditingBoardTitle(board.title);
+      setEditError('');
       setOpenMenuId(null);
   };
 
   const saveBoardTitle = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!editingBoardId || !editingBoardTitle.trim()) return;
+      setEditError('');
+      
+      if (!editingBoardId) return;
+
+      const titleError = validateTitle(editingBoardTitle, "Board title");
+      if (titleError) {
+          setEditError(titleError);
+          return;
+      }
 
       try {
           const updatedBoard = await fetchAPI(`/boards/${editingBoardId}`, {
@@ -129,8 +168,12 @@ export default function DashboardPage() {
           });
           setBoards(boards.map(b => b.id === editingBoardId ? updatedBoard : b));
           setEditingBoardId(null);
-      } catch (err) {
-          console.error(err);
+      } catch (err: unknown) {
+          if (err instanceof Error) {
+              setEditError(err.message);
+          } else {
+              setEditError('Failed to update board');
+          }
       }
   };
 
@@ -321,6 +364,9 @@ export default function DashboardPage() {
                         value={editingBoardTitle}
                         onChange={(e) => setEditingBoardTitle(e.target.value)}
                     />
+                    {editError && (
+                        <p className="mt-2 text-sm text-red-600">{editError}</p>
+                    )}
                     <div className="mt-6 flex justify-end gap-3">
                         <button
                             type="button"
@@ -363,6 +409,9 @@ export default function DashboardPage() {
                         value={newBoardTitle}
                         onChange={(e) => setNewBoardTitle(e.target.value)}
                     />
+                    {createError && (
+                        <p className="mt-2 text-sm text-red-600">{createError}</p>
+                    )}
                     <div className="mt-6 flex justify-end gap-3">
                         <button
                             type="button"

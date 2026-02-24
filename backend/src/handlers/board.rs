@@ -145,9 +145,16 @@ pub async fn create_board(
 
 pub async fn get_board_details(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(board_id): Path<Uuid>,
 ) -> impl IntoResponse {
+    let user_id = match get_user_id_from_header(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
+    };
+
     // Also fetch members for details view
+    // AND verify access: requester must be owner OR member
     let board = sqlx::query_as::<_, Board>(
         r#"
         SELECT 
@@ -159,32 +166,49 @@ pub async fn get_board_details(
         JOIN users owner ON b.user_id = owner.id
         LEFT JOIN board_members bm ON b.id = bm.board_id
         LEFT JOIN users u ON bm.user_id = u.id
-        WHERE b.id = $1
+        WHERE b.id = $1 AND (
+            b.user_id = $2 OR EXISTS (
+                SELECT 1 FROM board_members bm_check WHERE bm_check.board_id = b.id AND bm_check.user_id = $2
+            )
+        )
         GROUP BY b.id, owner.email, owner.username
         "#
     )
         .bind(board_id)
+        .bind(user_id)
         .fetch_optional(&state.db)
         .await;
 
     match board {
         Ok(Some(board)) => (StatusCode::OK, Json(board)).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, "Board not found").into_response(),
+        Ok(None) => (StatusCode::FORBIDDEN, "Access denied or Board not found").into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
     }
 }
 
 pub async fn update_board(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(board_id): Path<Uuid>,
     Json(payload): Json<UpdateBoard>,
 ) -> impl IntoResponse {
+    let user_id = match get_user_id_from_header(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
+    };
+
     let result = sqlx::query_as::<_, Board>(
         r#"
-        WITH updated AS (
+        WITH access_check AS (
+            SELECT 1 FROM boards b
+            LEFT JOIN board_members bm ON b.id = bm.board_id
+            WHERE b.id = $2 AND (b.user_id = $3 OR bm.user_id = $3)
+            LIMIT 1
+        ),
+        updated AS (
             UPDATE boards
             SET title = $1, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $2
+            WHERE id = $2 AND EXISTS (SELECT 1 FROM access_check)
             RETURNING id, user_id, title, created_at, updated_at
         )
         SELECT 
@@ -201,22 +225,30 @@ pub async fn update_board(
     )
     .bind(payload.title)
     .bind(board_id)
+    .bind(user_id)
     .fetch_optional(&state.db)
     .await;
 
     match result {
         Ok(Some(board)) => (StatusCode::OK, Json(board)).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, "Board not found").into_response(),
+        Ok(None) => (StatusCode::FORBIDDEN, "Access denied or Board not found").into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
     }
 }
 
 pub async fn delete_board(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(board_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    let result = sqlx::query("DELETE FROM boards WHERE id = $1")
+    let user_id = match get_user_id_from_header(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
+    };
+
+    let result = sqlx::query("DELETE FROM boards WHERE id = $1 AND user_id = $2")
         .bind(board_id)
+        .bind(user_id)
         .execute(&state.db)
         .await;
 
@@ -225,7 +257,7 @@ pub async fn delete_board(
             if res.rows_affected() > 0 {
                 (StatusCode::NO_CONTENT).into_response()
             } else {
-                (StatusCode::NOT_FOUND, "Board not found").into_response()
+                (StatusCode::FORBIDDEN, "Access denied or Board not found").into_response()
             }
         }
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),

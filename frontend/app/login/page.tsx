@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { fetchAPI, setToken } from '@/lib/api';
+import { validateEmail } from '@/lib/validation';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -15,6 +16,18 @@ export default function LoginPage() {
     e.preventDefault();
     setError('');
 
+    // Basic client-side validation
+    const emailError = validateEmail(email);
+    if (emailError) {
+        setError(emailError);
+        return;
+    }
+
+    if (!password) {
+        setError("Password is required");
+        return;
+    }
+
     try {
       const data = await fetchAPI('/login', {
         method: 'POST',
@@ -23,8 +36,12 @@ export default function LoginPage() {
 
       setToken(data.token);
       router.push('/dashboard');
-    } catch (err: any) {
-      setError(err.message || 'Login failed');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Login failed');
+      }
     }
   };
 
@@ -105,7 +122,7 @@ export default function LoginPage() {
         <div className="flex items-center justify-center">
             <div className="text-sm">
               <Link href="/register" className="font-medium text-indigo-600 hover:text-indigo-500 transition-colors">
-                 Don't have an account? Sign up
+                 Don&apos;t have an account? Sign up
               </Link>
             </div>
         </div>

@@ -3,7 +3,7 @@
 import { useEffect, useState, use, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { fetchAPI, getToken } from '@/lib/api';
-import { createPortal } from 'react-dom';
+import { validateTitle, validateEmail } from '@/lib/validation';
 
 interface Card {
   id: string;
@@ -109,6 +109,23 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
   const menuCardRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
+  // Handle keyboard shortcuts for confirmation modal
+  useEffect(() => {
+      if (!confirmConfig?.isOpen) return;
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+          if (e.key === 'Enter') {
+              e.preventDefault();
+              confirmConfig.onConfirm();
+          } else if (e.key === 'Escape') {
+              setConfirmConfig(null);
+          }
+      };
+
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [confirmConfig]);
+
   useEffect(() => {
     const token = getToken();
     if (!token) {
@@ -179,6 +196,12 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
   const handleShareBoard = async (e: React.FormEvent) => {
       e.preventDefault();
       setShareMessage(null);
+
+      const emailError = validateEmail(shareEmail);
+      if (emailError) {
+          setShareMessage({ type: 'error', text: emailError });
+          return;
+      }
       
       try {
           await fetchAPI(`/boards/${boardId}/members`, {
@@ -191,8 +214,12 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
           // Refresh board details to update the members list
           const updatedBoardData = await fetchAPI(`/boards/${boardId}`);
           setBoard(updatedBoardData);
-      } catch (err: any) {
-          setShareMessage({ type: 'error', text: err.message || 'Failed to invite user.' });
+      } catch (err: unknown) {
+          if (err instanceof Error) {
+            setShareMessage({ type: 'error', text: err.message });
+          } else {
+            setShareMessage({ type: 'error', text: 'Failed to invite user.' });
+          }
       }
   };
 
@@ -209,8 +236,12 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
                   const updatedBoardData = await fetchAPI(`/boards/${boardId}`);
                   setBoard(updatedBoardData);
                   setConfirmConfig(null);
-              } catch (err: any) {
-                  alert(err.message || 'Failed to remove member.');
+              } catch (err: unknown) {
+                  if (err instanceof Error) {
+                    alert(err.message);
+                  } else {
+                    alert('Failed to remove member.');
+                  }
                   setConfirmConfig(null);
               }
           }
@@ -319,7 +350,12 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
 
   const handleCreateList = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newListTitle.trim()) return;
+    
+    const titleError = validateTitle(newListTitle, "List title");
+    if (titleError) {
+        alert(titleError);
+        return;
+    }
 
     try {
       const newList = await fetchAPI(`/boards/${boardId}/lists`, {
@@ -332,8 +368,13 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
       setLists([...lists, { ...newList, cards: [] }]);
       setNewListTitle('');
       setIsAddingList(false);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
+      if (err instanceof Error) {
+        alert(err.message);
+      } else {
+        alert("Failed to create list");
+      }
     }
   };
 
@@ -363,7 +404,11 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
   };
 
   const saveListTitle = async (listId: string) => {
-      if (!editingListTitle.trim()) return;
+      const titleError = validateTitle(editingListTitle, "List title");
+      if (titleError) {
+          alert(titleError);
+          return;
+      }
 
       try {
            const updatedList = await fetchAPI(`/lists/${listId}`, {
@@ -373,8 +418,13 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
           
           setLists(lists.map(l => l.id === listId ? { ...l, title: updatedList.title } : l));
           setEditingListId(null);
-      } catch (err) {
+      } catch (err: unknown) {
           console.error(err);
+          if (err instanceof Error) {
+            alert(err.message);
+          } else {
+            alert("Failed to update list");
+          }
       }
   };
 
@@ -383,7 +433,12 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
   const handleCreateCard = async (e: React.FormEvent, listId: string) => {
     e.preventDefault();
     const title = newCardTitles[listId];
-    if (!title?.trim()) return;
+    
+    const titleError = validateTitle(title, "Card title");
+    if (titleError) {
+        alert(titleError);
+        return;
+    }
 
     const priority = newCardPriority[listId] || 'low';
 
@@ -410,8 +465,13 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
       
       setNewCardTitles({ ...newCardTitles, [listId]: '' });
       setNewCardPriority({ ...newCardPriority, [listId]: 'low' });
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
+      if (err instanceof Error) {
+        alert(err.message);
+      } else {
+        alert("Failed to create card");
+      }
     }
   };
 
@@ -447,7 +507,11 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
   };
 
   const saveCardChanges = async (cardId: string, listId: string) => {
-      if (!editingCardTitle.trim()) return;
+      const titleError = validateTitle(editingCardTitle, "Card title");
+      if (titleError) {
+          alert(titleError);
+          return;
+      }
 
       try {
           const updatedCard = await fetchAPI(`/cards/${cardId}`, {
@@ -468,8 +532,13 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
               return list;
           }));
           setEditingCardId(null);
-      } catch (err) {
+      } catch (err: unknown) {
           console.error(err);
+          if (err instanceof Error) {
+            alert(err.message);
+          } else {
+            alert("Failed to update card");
+          }
       }
   };
 
@@ -593,7 +662,7 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
                               <select 
                                   className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none bg-white"
                                   value={getListSettings(list.id).sortBy}
-                                  onChange={(e) => updateListSettings(list.id, { sortBy: e.target.value as any })}
+                                  onChange={(e) => updateListSettings(list.id, { sortBy: e.target.value as SortOption })}
                               >
                                   <option value="manual">Manual (Drag & Drop)</option>
                                   <option value="priority-high">Priority (High → Low)</option>
@@ -610,7 +679,7 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
                                   {['all', 'low', 'medium', 'high'].map((p) => (
                                       <button
                                           key={p}
-                                          onClick={() => updateListSettings(list.id, { filterPriority: p as any })}
+                                          onClick={() => updateListSettings(list.id, { filterPriority: p as 'all' | 'low' | 'medium' | 'high' })}
                                           className={`flex-1 text-[10px] py-1 rounded border capitalize ${getListSettings(list.id).filterPriority === p ? 'bg-indigo-50 border-indigo-200 text-indigo-700 font-medium' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
                                       >
                                           {p}
@@ -762,7 +831,7 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
                         <div className="flex gap-2">
                              <select
                                 value={newCardPriority[list.id] || 'low'}
-                                onChange={(e) => setNewCardPriority({ ...newCardPriority, [list.id]: e.target.value as any })}
+                                onChange={(e) => setNewCardPriority({ ...newCardPriority, [list.id]: e.target.value as 'low' | 'medium' | 'high' })}
                                 className="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 flex-1 bg-white"
                             >
                                 <option value="low">Low</option>
