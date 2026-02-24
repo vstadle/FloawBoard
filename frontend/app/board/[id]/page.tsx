@@ -473,9 +473,6 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
       <header className="bg-white border-b border-gray-200 px-6 py-3 flex justify-between items-center shadow-sm z-10 h-16">
         <div className="flex items-center gap-4">
             <h1 className="text-xl font-bold text-gray-800 tracking-tight">{board.title}</h1>
-            <span className="px-2 py-1 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-full border border-indigo-100">
-                Private
-            </span>
         </div>
 
         <div className="flex items-center gap-3">
@@ -532,9 +529,10 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
                   ) : (
                       <h3 
                           onClick={() => startEditingList(list)}
-                          className="font-semibold text-gray-700 text-sm cursor-pointer hover:bg-gray-200 px-2 py-1 rounded w-full truncate"
+                          className="font-semibold text-gray-700 text-sm cursor-pointer hover:bg-gray-200 px-2 py-1 rounded w-full truncate flex items-center gap-2"
                       >
-                          {list.title}
+                          <span className="truncate">{list.title}</span>
+                          <span className="text-gray-400 font-normal">({list.cards.length})</span>
                       </h3>
                   )}
                   
@@ -663,15 +661,18 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
                                 onChange={(e) => setEditingCardTitle(e.target.value)}
                             />
                             
-                            <select
-                                value={editingCardPriority}
-                                onChange={(e) => setEditingCardPriority(e.target.value as 'low' | 'medium' | 'high')}
-                                className="w-full text-xs px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500"
-                            >
-                                <option value="low">Low Priority (Green)</option>
-                                <option value="medium">Medium Priority (Yellow)</option>
-                                <option value="high">High Priority (Red)</option>
-                            </select>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Priority</label>
+                                <select
+                                    value={editingCardPriority}
+                                    onChange={(e) => setEditingCardPriority(e.target.value as 'low' | 'medium' | 'high')}
+                                    className="w-full text-xs px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-indigo-500 bg-white"
+                                >
+                                    <option value="low">Low</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="high">High</option>
+                                </select>
+                            </div>
 
                             <div className="flex gap-2 justify-end">
                                 <button 
