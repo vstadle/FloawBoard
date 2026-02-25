@@ -24,6 +24,7 @@
 -   **Database Interface:** SQLx
 -   **Serialization:** Serde / Serde JSON
 -   **Authentication:** Argon2 (hashing) & `jsonwebtoken` (JWT)
+-   **Security:** `tower-governor` (Rate Limiting), `tower` (Middleware)
 -   **Container Optimization:** Cargo Chef
 -   **Configuration:** `APP_PORT` env var for internal listening port.
 
@@ -134,7 +135,10 @@
 ### Backend
 -   **Manual Mapping in `create_board`**: Due to a tuple type inference issue with `sqlx::query_as` combined with the struct having fields not present in the INSERT RETURNING clause, `create_board` uses `sqlx::query(...).map(...)` to manually construct the object.
 -   **Aggregations**: `get_boards` uses `array_agg` and `LEFT JOIN` to fetch member usernames and the owner's email in a single query.
--   **Security**: Routes (except auth) expect an `Authorization: Bearer <token>` header.
+-   **Security**: 
+    -   Routes (except auth) expect an `Authorization: Bearer <token>` header.
+    -   **Rate Limiting:** Implemented via `tower-governor` (5 requests/second per IP, burst 10).
+    -   **Authorization:** Strict ownership and membership checks enforced at the database level (SQL `EXISTS` and `JOIN`s) for all Board, List, and Card operations.
 -   **Configuration**: Uses `APP_PORT` from environment (default 8080).
 
 ### Frontend

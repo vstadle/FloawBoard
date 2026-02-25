@@ -13,6 +13,7 @@ FloawBoard is a modern, self-hostable Kanban project management tool designed fo
 -   **Task Management**: Create, edit, delete, and prioritize tasks (Low, Medium, High) with color-coded indicators.
 -   **Drag & Drop**: Native HTML5 drag-and-drop interface for moving tasks between lists.
 -   **Responsive Design**: Modern UI built with Tailwind CSS, fully responsive for various screen sizes.
+-   **Robust Security**: Built-in protection against SQL Injection, strict resource authorization (ownership/membership checks), and API rate limiting (Anti-Spam).
 
 ## Technology Stack
 
@@ -28,6 +29,7 @@ FloawBoard is a modern, self-hostable Kanban project management tool designed fo
 -   **Database Driver**: SQLx (PostgreSQL)
 -   **Serialization**: Serde
 -   **Authentication**: Argon2 & JWT
+-   **Security**: `tower-governor` (Rate Limiting)
 
 ### Database
 -   **System**: PostgreSQL 16
@@ -108,6 +110,8 @@ If you prefer to run services individually for development:
     ```
 
 ## API Documentation
+
+**Note:** All API endpoints are rate-limited to 5 requests per second (burst 10) per IP address to prevent abuse.
 
 ### Authentication
 -   `POST /register`: Register a new user.
