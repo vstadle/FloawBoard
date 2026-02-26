@@ -47,3 +47,7 @@ logs/
 # Temporary Files
 tmp/
 temp/
+
+# Markdown Files
+*.md
+!README.md

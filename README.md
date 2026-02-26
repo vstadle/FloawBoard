@@ -55,14 +55,28 @@ The entire application is containerized and managed via Docker Compose for easy 
     cd floawboard
     ```
 
-2.  Start the application:
+2.  Configure environment variables:
+    ```bash
+    cp .env.example .env
+    ```
+    Open the `.env` file and review/modify the variables for your setup:
+    
+    *   **`WEB_HOST` / `WEB_PORT`**: Where your frontend handles public requests (default: `localhost:50001`).
+    *   **`WEB_INTERNAL_PORT`**: The Next.js container's internal listening port (default: `3000`).
+    *   **`API_HOST` / `API_PORT`**: Where your backend handles public requests (default: `localhost:50002`).
+    *   **`API_INTERNAL_PORT`**: The Rust container's internal listening port (default: `50002`).
+    *   **`DB_HOST` / `DB_PORT`**: Location of your database. Keep as `db` if running entirely inside Docker Compose, otherwise use an external IP.
+    *   **`POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB`**: Default database credentials.
+    *   **`JWT_SECRET`**: Secure string for signing authentication tokens. **Must be changed for production!**
+
+3.  Start the application:
     ```bash
     docker compose up -d --build
     ```
 
-3.  Access the application:
-    -   **Frontend**: http://localhost:3000
-    -   **Backend API**: http://localhost:8080
+4.  Access the application:
+    -   **Frontend**: http://localhost:50001  (or the custom WEB_PORT you defined)
+    -   **Backend API**: http://localhost:50002 (or the custom API_PORT you defined)
 
 ## Development
 
