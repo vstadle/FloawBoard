@@ -1,5 +1,7 @@
 # FloawBoard
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 FloawBoard is a modern, self-hostable Kanban project management tool designed for high-performance teams. It provides a clean, intuitive interface for managing tasks, lists, and boards, featuring drag-and-drop functionality and real-time updates.
 
 ## Features
@@ -49,7 +51,7 @@ The entire application is containerized and managed via Docker Compose for easy 
 
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/yourusername/floawboard.git
+    git clone https://github.com/valentin/floawboard.git
     cd floawboard
     ```
 
