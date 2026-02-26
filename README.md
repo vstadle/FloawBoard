@@ -160,3 +160,7 @@ If you prefer to run services individually for development:
 ## License
 
 This project is licensed under the MIT License.
+
+## Copyright
+
+Copyright (c) 2026 vstadle
