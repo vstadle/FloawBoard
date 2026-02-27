@@ -14,7 +14,7 @@ services:
     networks:
       - kanban-network
     ports:
-      - "${DB_PORT}:5432"
+      - "${DB_EXTERNAL_PORT}:5432"
 
   # --- API RUST ---
   api:
