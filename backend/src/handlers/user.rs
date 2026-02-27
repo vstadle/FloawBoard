@@ -16,7 +16,7 @@ use jsonwebtoken::{encode, decode, DecodingKey, Validation, EncodingKey, Header}
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use chrono::{Utc, Duration};
-use crate::models::user::{CreateUser, LoginUser, User, AuthResponse};
+use crate::models::user::{CreateUser, LoginUser, User, AuthResponse, ChangePasswordRequest};
 
 // État partagé pour l'application
 #[derive(Clone)]
@@ -153,6 +153,60 @@ pub async fn get_me(
     };
 
     (StatusCode::OK, Json(user)).into_response()
+}
+
+pub async fn change_password(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<ChangePasswordRequest>,
+) -> impl IntoResponse {
+    let user_id = match get_user_id_from_header(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => return (StatusCode::UNAUTHORIZED, "Invalid token").into_response(),
+    };
+
+    // 1. Fetch current user to check password
+    let user = match sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+    {
+        Ok(Some(u)) => u,
+        Ok(None) => return (StatusCode::NOT_FOUND, "User not found").into_response(),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+    };
+
+    // 2. Check current password
+    let parsed_hash = match PasswordHash::new(&user.password_hash) {
+        Ok(hash) => hash,
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Invalid password hash").into_response(),
+    };
+
+    if Argon2::default().verify_password(payload.current_password.as_bytes(), &parsed_hash).is_err() {
+        return (StatusCode::BAD_REQUEST, "Invalid current password").into_response();
+    }
+
+    // 3. Hash new password
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let new_password_hash = match argon2.hash_password(payload.new_password.as_bytes(), &salt) {
+        Ok(hash) => hash.to_string(),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to hash password").into_response(),
+    };
+
+    // 4. Update in database
+    let result = sqlx::query(
+        "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2"
+    )
+    .bind(new_password_hash)
+    .bind(user_id)
+    .execute(&state.db)
+    .await;
+
+    match result {
+        Ok(_) => (StatusCode::OK, Json(serde_json::json!({ "message": "Password updated successfully" }))).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Database error").into_response(),
+    }
 }
 
 // Helper to extract user_id from Authorization header

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tower_http::cors::{CorsLayer, Any};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower::ServiceBuilder;
-use crate::handlers::user::{register_user, login_user, get_me, AppState};
+use crate::handlers::user::{register_user, login_user, get_me, change_password, AppState};
 use crate::handlers::board::{
     get_boards, create_board, get_board_details, update_board, delete_board, add_member, remove_member,
 };
@@ -60,6 +60,7 @@ async fn main() {
         .route("/register", post(register_user))
         .route("/login", post(login_user))
         .route("/me", get(get_me))
+        .route("/me/password", put(change_password))
         // Board Routes
         .route("/boards", get(get_boards).post(create_board))
         .route("/boards/:board_id", get(get_board_details).put(update_board).delete(delete_board))
