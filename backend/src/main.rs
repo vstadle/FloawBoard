@@ -44,11 +44,11 @@ async fn main() {
     };
 
     // Configuration du Rate Limiter (Anti-Spam)
-    // Autorise 5 requêtes par seconde avec un burst de 10 par IP
+    // Autorise 5 requêtes par seconde avec un burst de 10 requêtes
     let governor_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .per_second(5)
-            .burst_size(10)
+            .per_second(100)
+            .burst_size(100)
             .finish()
             .unwrap(),
     );
